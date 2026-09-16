@@ -1,0 +1,1 @@
+"""File property metadata editor."""
