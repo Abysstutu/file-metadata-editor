@@ -5,11 +5,16 @@ import ctypes
 import os
 import re
 import shutil
+import stat
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
+
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import DictionaryObject
+from pypdf.xmp import XmpInformation
 
 CORE = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
 DC = "http://purl.org/dc/elements/1.1/"
@@ -89,6 +94,52 @@ def set_filesystem_times(path: Path, created: str, modified: str) -> None:
             raise OSError("更新文件系统时间失败；请确认文件未被其他程序占用。")
     finally:
         ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def inplace_write_block_reason(path: Path) -> str | None:
+    """Return a user-facing reason when replacing this file is unsafe."""
+    attributes = getattr(path.stat(), "st_file_attributes", 0)
+    if os.name == "nt" and attributes & stat.FILE_ATTRIBUTE_READONLY:
+        return "文件标记为只读"
+    try:
+        with path.open("r+b"):
+            pass
+    except PermissionError:
+        return "文件无写入权限，或正被 Word、WPS、微信、同步软件等程序占用"
+    except OSError as exc:
+        return f"无法写入源文件：{exc}"
+    try:
+        descriptor, probe_name = tempfile.mkstemp(prefix=".metadata-write-test-", dir=path.parent)
+        os.close(descriptor)
+        Path(probe_name).unlink(missing_ok=True)
+    except PermissionError:
+        return "当前文件夹没有创建新文件的权限"
+    except OSError as exc:
+        return f"当前文件夹不可写：{exc}"
+    return None
+
+
+def make_writable(path: Path) -> None:
+    """Remove the read-only bit from a program-created backup or copy."""
+    try:
+        os.chmod(path, path.stat().st_mode | stat.S_IWRITE)
+        if os.name == "nt":
+            attributes = ctypes.windll.kernel32.GetFileAttributesW(str(path))
+            if attributes != 0xFFFFFFFF:
+                # FILE_ATTRIBUTE_READONLY = 0x1
+                ctypes.windll.kernel32.SetFileAttributesW(str(path), attributes & ~0x1)
+    except OSError as exc:
+        raise PermissionError(f"已生成副本，但无法解除其只读属性：{exc}") from exc
+
+
+def suggested_copy_path(path: Path, label: str = "已清除属性") -> Path:
+    """Choose a non-destructive, recognizable output name beside the source."""
+    candidate = path.with_name(f"{path.stem}.{label}{path.suffix}")
+    index = 2
+    while candidate.exists():
+        candidate = path.with_name(f"{path.stem}.{label} ({index}){path.suffix}")
+        index += 1
+    return candidate
 
 
 def _text(root: ET.Element | None, xpath: str) -> str:
@@ -173,15 +224,29 @@ def _pdf_escape(value: str) -> str:
 
 
 def read_pdf(path: Path) -> Metadata:
-    data = path.read_bytes()
-    if b"/Encrypt" in data: raise ValueError("加密 PDF 不支持读取或写入。")
+    reader = PdfReader(path)
+    if reader.is_encrypted:
+        raise ValueError("加密 PDF 不支持读取或写入。")
     result = Metadata(path, "PDF")
     result.values.update(filesystem_values(path))
-    mapping = {"title": b"Title", "author": b"Author", "subject": b"Subject", "keywords": b"Keywords", "creator": b"Creator", "producer": b"Producer", "created": b"CreationDate", "modified": b"ModDate"}
+    mapping = {"title": "/Title", "author": "/Author", "subject": "/Subject", "keywords": "/Keywords", "creator": "/Creator", "producer": "/Producer", "created": "/CreationDate", "modified": "/ModDate"}
     for key, pdf_key in mapping.items():
-        matches = list(re.finditer(rb"/" + pdf_key + rb"\s*\((.*?)\)", data, re.S))
-        value = _pdf_unescape(matches[-1].group(1)) if matches else ""
+        value = str((reader.metadata or {}).get(pdf_key, ""))
         result.values[key] = value.replace("D:", "") if key in {"created", "modified"} else value
+    # Word/WPS exports often retain their visible metadata in the XMP packet.
+    try:
+        xmp = reader.xmp_metadata
+    except Exception:
+        xmp = None
+    if xmp is not None:
+        title = (xmp.dc_title or {}).get("x-default") or next(iter((xmp.dc_title or {}).values()), "")
+        subject = (xmp.dc_description or {}).get("x-default") or next(iter((xmp.dc_description or {}).values()), "")
+        result.values["title"] = title or result.values["title"]
+        result.values["author"] = ", ".join(xmp.dc_creator or []) or result.values["author"]
+        result.values["subject"] = subject or result.values["subject"]
+        result.values["keywords"] = ", ".join(xmp.dc_subject or []) or xmp.pdf_keywords or result.values["keywords"]
+        result.values["creator"] = xmp.xmp_creator_tool or result.values["creator"]
+        result.values["producer"] = xmp.pdf_producer or result.values["producer"]
     return result
 
 
@@ -191,28 +256,66 @@ def _pdf_date(value: str) -> str:
 
 
 def write_pdf(meta: Metadata, values: dict[str, str], clear: bool) -> None:
-    data = meta.path.read_bytes()
-    if b"/Encrypt" in data: raise ValueError("加密 PDF 不支持写入。")
-    starts = list(re.finditer(rb"startxref\s*(\d+)", data))
-    trailers = list(re.finditer(rb"trailer\s*<<(.*?)>>", data, re.S))
-    if not starts or not trailers: raise ValueError("此 PDF 结构不支持安全的增量属性写入。")
-    trailer, previous = trailers[-1].group(1), int(starts[-1].group(1))
-    root = re.search(rb"/Root\s+(\d+\s+\d+\s+R)", trailer)
-    size = re.search(rb"/Size\s+(\d+)", trailer)
-    if not root or not size: raise ValueError("未找到 PDF 根对象，无法写入。")
-    obj = int(size.group(1))
-    pairs = [("Title", "title"), ("Author", "author"), ("Subject", "subject"), ("Keywords", "keywords"), ("Creator", "creator"), ("Producer", "producer"), ("CreationDate", "created"), ("ModDate", "modified")]
-    body = [f"{obj} 0 obj", "<<"]
-    for pdf_key, key in pairs:
+    # Rewriting a signed PDF invalidates its signature. Refuse it explicitly so
+    # single-file and batch operations both report a safe, actionable result.
+    if b"/ByteRange" in meta.path.read_bytes():
+        raise ValueError("检测到数字签名 PDF，已跳过以避免签名失效。")
+    reader = PdfReader(meta.path)
+    if reader.is_encrypted:
+        raise ValueError("加密 PDF 不支持写入。")
+    writer = PdfWriter()
+    writer.clone_document_from_reader(reader)
+
+    pairs = {"/Title": "title", "/Author": "author", "/Subject": "subject", "/Keywords": "keywords", "/Creator": "creator", "/Producer": "producer", "/CreationDate": "created", "/ModDate": "modified"}
+    # clone_document_from_reader keeps the source /Info object. Replacing it is
+    # essential: add_metadata alone cannot remove old keys from that object.
+    info = {} if clear else {str(key): str(value) for key, value in (reader.metadata or {}).items()}
+    for pdf_key, key in pairs.items():
         value = "" if clear else values.get(key, "")
         if value:
-            value = _pdf_date(value) if key in {"created", "modified"} else value
-            body.append(f"/{pdf_key} ({_pdf_escape(value)})")
-    body += [">>", "endobj"]
-    appendix = ("\n".join(body) + "\n").encode("utf-8")
-    offset = len(data) + len(appendix)
-    xref = f"xref\n{obj} 1\n{len(data):010d} 00000 n \ntrailer\n<< /Size {obj + 1} /Root {root.group(1).decode()} /Info {obj} 0 R /Prev {previous} >>\nstartxref\n{offset}\n%%EOF\n".encode()
-    meta.path.write_bytes(data + appendix + xref)
+            info[pdf_key] = _pdf_date(value) if key in {"created", "modified"} else value
+        else:
+            info.pop(pdf_key, None)
+    writer._info = writer._add_object(DictionaryObject())
+    writer.add_metadata(info)
+
+    try:
+        xmp = reader.xmp_metadata or XmpInformation.create()
+    except Exception:
+        xmp = XmpInformation.create()
+    if clear:
+        xmp.dc_title, xmp.dc_creator, xmp.dc_description, xmp.dc_subject = {}, [], {}, []
+        xmp.pdf_keywords = xmp.xmp_creator_tool = xmp.pdf_producer = ""
+    else:
+        xmp.dc_title = {"x-default": values.get("title", "")}
+        xmp.dc_creator = [values["author"]] if values.get("author") else []
+        xmp.dc_description = {"x-default": values.get("subject", "")}
+        xmp.dc_subject = [item.strip() for item in values.get("keywords", "").split(",") if item.strip()]
+        xmp.pdf_keywords = values.get("keywords", "")
+        xmp.xmp_creator_tool = values.get("creator", "")
+        xmp.pdf_producer = values.get("producer", "")
+    writer.xmp_metadata = xmp
+
+    descriptor, tmp_name = tempfile.mkstemp(suffix=meta.path.suffix, dir=meta.path.parent)
+    os.close(descriptor)
+    tmp = Path(tmp_name)
+    try:
+        with tmp.open("wb") as output:
+            writer.write(output)
+        os.replace(tmp, meta.path)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+
+
+def clear_embedded_properties(meta: Metadata) -> None:
+    """Clear document-internal metadata without changing filesystem timestamps."""
+    if meta.kind == "Office":
+        write_office(meta, {key: "" for key, _ in FIELDS}, {}, True)
+    elif meta.kind == "PDF":
+        write_pdf(meta, {}, True)
+    else:
+        raise ValueError("不支持清除该文件类型的属性。")
 
 
 def load(path: str) -> Metadata:
@@ -225,6 +328,18 @@ def load(path: str) -> Metadata:
 
 
 def backup(path: Path) -> Path:
-    target = path.with_name(path.name + ".metadata-backup")
-    shutil.copy2(path, target)
+    # Never overwrite an earlier backup: network-sync folders and document apps
+    # often keep the old .metadata-backup file open or read-only.
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    # Keep the original extension so Windows recognizes the backup as a PDF or
+    # Office document and it can be opened directly.
+    target = path.with_name(f"{path.stem}.{stamp}.metadata-backup{path.suffix}")
+    try:
+        shutil.copy2(path, target)
+        make_writable(target)
+    except PermissionError as exc:
+        raise PermissionError(
+            "无法在当前文件夹创建备份。请确认该文件夹可写、文件未被同步软件或 Office/WPS 占用，"
+            "或者在界面中将“保存前备份”设为“否”。"
+        ) from exc
     return target

@@ -1,22 +1,32 @@
 from __future__ import annotations
 
+import shutil
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from .engine import FIELDS, PDF_FIELDS, Metadata, backup, load, set_filesystem_times, write_office, write_pdf
+from .engine import FIELDS, PDF_FIELDS, Metadata, backup, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, suggested_copy_path, write_office, write_pdf
 
 
 class Editor(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("文件属性元数据编辑器")
-        self.geometry("1240x780")
-        self.minsize(980, 640)
+        self.title("文件源数据编辑")
+        self.after_idle(self._fit_initial_window)
         self.meta: Metadata | None = None
         self.vars: dict[str, tk.StringVar] = {}
         self.backup_var = tk.BooleanVar(value=True)
         self.path_var = tk.StringVar()
         self._style()
         self._layout()
+
+    def _fit_initial_window(self):
+        """Size the first window to the actual DPI-aware monitor dimensions."""
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        width = min(1240, max(760, int(screen_width * 0.90)))
+        height = min(780, max(500, int(screen_height * 0.82)))
+        self.minsize(min(900, max(680, int(screen_width * 0.62))), min(600, max(440, int(screen_height * 0.58))))
+        self.geometry(f"{width}x{height}")
 
     def _style(self):
         style = ttk.Style(self)
@@ -32,15 +42,15 @@ class Editor(tk.Tk):
     def _layout(self):
         outer = ttk.Frame(self, padding=18)
         outer.pack(fill="both", expand=True)
-        ttk.Label(outer, text="文件属性元数据编辑器", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(outer, text="文件源数据编辑", style="Title.TLabel").pack(anchor="w")
         ttk.Label(outer, text="本地编辑 · Office 与 PDF · 保存前可自动备份", style="Muted.TLabel").pack(anchor="w", pady=(2, 14))
         chooser = ttk.Frame(outer)
         chooser.pack(fill="x", pady=(0, 12))
         ttk.Label(chooser, text="文件", width=6).pack(side="left")
         ttk.Entry(chooser, textvariable=self.path_var).pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(chooser, text="选择文件", command=self.choose).pack(side="left")
+        ttk.Button(chooser, text="批量清除", command=self.batch_clear).pack(side="left", padx=(8, 0))
         body = ttk.Panedwindow(outer, orient="horizontal")
-        body.pack(fill="both", expand=True)
         left = ttk.Labelframe(body, text=" 文件信息 ", style="Card.TLabelframe", padding=8)
         right = ttk.Labelframe(body, text=" 编辑属性 ", style="Card.TLabelframe", padding=14)
         body.add(left, weight=1); body.add(right, weight=2)
@@ -57,7 +67,10 @@ class Editor(tk.Tk):
         self.form_canvas.bind("<Configure>", lambda e: self.form_canvas.itemconfigure("form", width=e.width))
         self.form_canvas.configure(yscrollcommand=form_scroll.set)
         self.form_canvas.pack(side="left", fill="both", expand=True); form_scroll.pack(side="right", fill="y")
-        footer = ttk.Frame(outer); footer.pack(fill="x", pady=(12, 0))
+        # Pack the non-shrinking footer first.  The body is the only region
+        # allowed to lose height while the user makes the window smaller.
+        footer = ttk.Frame(outer); footer.pack(fill="x", side="bottom", pady=(12, 0))
+        body.pack(fill="both", expand=True)
         ttk.Label(footer, text="保存前备份：").pack(side="left")
         ttk.Radiobutton(footer, text="是", variable=self.backup_var, value=True).pack(side="left", padx=(2, 8))
         ttk.Radiobutton(footer, text="否", variable=self.backup_var, value=False).pack(side="left")
@@ -117,7 +130,7 @@ class Editor(tk.Tk):
             self.custom_text = tk.Text(box, height=5, font=("Consolas", 10), relief="solid", borderwidth=1)
             self.custom_text.pack(fill="x"); self.custom_text.insert("1.0", "\n".join(f"{k} = {v}" for k, v in self.meta.custom.items()))
         else:
-            ttk.Label(self.form, text="PDF 采用增量更新保存。加密 PDF 与已签名 PDF 不建议修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+            ttk.Label(self.form, text="PDF 会重写元数据保存。加密或已签名 PDF 将拒绝修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
 
     def _section(self, title, fields, readonly=False):
         box = ttk.Labelframe(self.form, text=f" {title} ", style="Card.TLabelframe", padding=10); box.pack(fill="x", pady=(0, 12))
@@ -141,26 +154,172 @@ class Editor(tk.Tk):
         assert self.meta
         set_filesystem_times(self.meta.path, self.vars["filesystem_created"].get().strip(), self.vars["filesystem_modified"].get().strip())
 
+    def _copy_target(self, source: Metadata, action: str, label: str, reason: str) -> Metadata | None:
+        if not messagebox.askyesno(
+            "无法直接修改",
+            f"无法直接{action}原文件：{reason}。\n\n是否另存为一个副本并继续？原文件不会被修改。",
+            parent=self,
+        ):
+            return None
+        target = filedialog.asksaveasfilename(
+            title="另存为可修改副本",
+            initialdir=str(source.path.parent),
+            initialfile=suggested_copy_path(source.path, label).name,
+            defaultextension=source.path.suffix,
+            filetypes=[("同类型文件", f"*{source.path.suffix}"), ("所有文件", "*.*")],
+        )
+        if not target:
+            return None
+        target_path = Path(target)
+        if target_path.resolve() == source.path.resolve():
+            messagebox.showwarning("请选择新文件名", "副本不能与原文件同名。", parent=self)
+            return None
+        shutil.copy2(source.path, target_path)
+        make_writable(target_path)
+        return load(str(target_path))
+
+    def _target_for_write(self, action: str, label: str) -> tuple[Metadata, bool] | None:
+        """Return the original metadata or a user-chosen writable copy target."""
+        assert self.meta
+        reason = inplace_write_block_reason(self.meta.path)
+        if not reason:
+            return self.meta, False
+        copy = self._copy_target(self.meta, action, label, reason)
+        return (copy, True) if copy else None
+
     def save(self):
         if not self.meta: return
         try:
-            if self.backup_var.get(): backup(self.meta.path)
+            target = self._target_for_write("保存", "已修改属性")
+            if target is None: return
+            meta, is_copy = target
+            if self.backup_var.get() and not is_copy: backup(meta.path)
             values = {key: var.get().strip() for key, var in self.vars.items()}
-            if self.meta.kind == "Office": write_office(self.meta, values, self._custom(), False)
-            else: write_pdf(self.meta, values, False)
-            self._system_times(); self.open(str(self.meta.path)); self.status.configure(text="保存成功，已重新读取验证。")
+            try:
+                if meta.kind == "Office": write_office(meta, values, self._custom(), False)
+                else: write_pdf(meta, values, False)
+            except PermissionError:
+                if is_copy: raise
+                copy = self._copy_target(meta, "保存", "已修改属性", "Windows 拒绝替换原文件；它可能仍被其他程序占用")
+                if copy is None: return
+                meta, is_copy = copy, True
+                if meta.kind == "Office": write_office(meta, values, self._custom(), False)
+                else: write_pdf(meta, values, False)
+            set_filesystem_times(meta.path, values["filesystem_created"], values["filesystem_modified"])
+            self.open(str(meta.path))
+            self.status.configure(text="已另存为副本并保存。" if is_copy else "保存成功，已重新读取验证。")
         except Exception as e: messagebox.showerror("保存失败", str(e))
 
     def clear(self):
         if not self.meta: return
         if not messagebox.askyesno("确认清除", "将清空文档内嵌属性和自定义属性；不会更改 Windows 文件系统时间。是否继续？"): return
         try:
-            if self.backup_var.get(): backup(self.meta.path)
-            values = {key: "" for key in self.vars}
-            if self.meta.kind == "Office": write_office(self.meta, values, {}, True)
-            else: write_pdf(self.meta, values, True)
-            self.open(str(self.meta.path)); self.status.configure(text="嵌入属性已清除。")
+            target = self._target_for_write("清除属性", "已清除属性")
+            if target is None: return
+            meta, is_copy = target
+            if self.backup_var.get() and not is_copy: backup(meta.path)
+            try:
+                clear_embedded_properties(meta)
+            except PermissionError:
+                if is_copy: raise
+                copy = self._copy_target(meta, "清除属性", "已清除属性", "Windows 拒绝替换原文件；它可能仍被其他程序占用")
+                if copy is None: return
+                meta, is_copy = copy, True
+                clear_embedded_properties(meta)
+            self.open(str(meta.path))
+            self.status.configure(text="已另存为副本并清除属性。" if is_copy else "嵌入属性已清除。")
         except Exception as e: messagebox.showerror("清除失败", str(e))
+
+    def batch_clear(self):
+        paths = filedialog.askopenfilenames(
+            title="选择要清除属性的文件",
+            filetypes=[("支持的文件", "*.docx *.xlsx *.pptx *.docm *.xlsm *.pptm *.dotx *.xltx *.potx *.dotm *.xltm *.potm *.ppsx *.ppsm *.pdf")],
+        )
+        if not paths:
+            return
+        self._show_batch_dialog(list(dict.fromkeys(paths)))
+
+    def _show_batch_dialog(self, paths: list[str]):
+        dialog = tk.Toplevel(self)
+        dialog.title("批量清除嵌入属性")
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.minsize(760, 430)
+        dialog.geometry("900x560")
+        frame = ttk.Frame(dialog, padding=16)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="批量清除嵌入属性", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(frame, text=f"已选择 {len(paths)} 个文件。将清除 Office/PDF 的内嵌属性，不修改 Windows 文件时间。", style="Muted.TLabel").pack(anchor="w", pady=(3, 12))
+        table = ttk.Treeview(frame, columns=("file", "status", "detail"), show="headings")
+        table.heading("file", text="文件")
+        table.heading("status", text="状态")
+        table.heading("detail", text="结果 / 原因")
+        table.column("file", width=420, minwidth=250)
+        table.column("status", width=90, anchor="center", stretch=False)
+        table.column("detail", width=320, minwidth=180)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=table.yview)
+        table.configure(yscrollcommand=scrollbar.set)
+        table.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        rows = {path: table.insert("", "end", values=(path, "等待", "")) for path in paths}
+
+        footer = ttk.Frame(dialog, padding=(16, 0, 16, 16))
+        footer.pack(fill="x")
+        batch_backup = tk.BooleanVar(value=self.backup_var.get())
+        ttk.Label(footer, text="保存前备份：").pack(side="left")
+        ttk.Radiobutton(footer, text="是", variable=batch_backup, value=True).pack(side="left", padx=(2, 8))
+        ttk.Radiobutton(footer, text="否", variable=batch_backup, value=False).pack(side="left")
+        progress = ttk.Label(footer, text="等待开始", style="Muted.TLabel")
+        progress.pack(side="left", padx=16)
+        close_button = ttk.Button(footer, text="关闭", command=dialog.destroy)
+        close_button.pack(side="right")
+        start_button = ttk.Button(footer, text="开始清除", style="Accent.TButton")
+        start_button.pack(side="right", padx=(0, 8))
+
+        def start():
+            if not messagebox.askyesno("确认批量清除", f"确认清除这 {len(paths)} 个文件的所有内嵌属性吗？\n此操作将无法撤销。", parent=dialog):
+                return
+            start_button.configure(state="disabled")
+            close_button.configure(state="disabled")
+            succeeded = failed = 0
+            for index, path in enumerate(paths, start=1):
+                table.item(rows[path], values=(path, "处理中", ""))
+                progress.configure(text=f"正在处理 {index} / {len(paths)}")
+                dialog.update_idletasks()
+                try:
+                    meta = load(path)
+                    reason = inplace_write_block_reason(meta.path)
+                    is_copy = bool(reason)
+                    if is_copy:
+                        copy_path = suggested_copy_path(meta.path)
+                        shutil.copy2(meta.path, copy_path)
+                        make_writable(copy_path)
+                        meta = load(str(copy_path))
+                    if batch_backup.get() and not is_copy:
+                        backup(meta.path)
+                    try:
+                        clear_embedded_properties(meta)
+                    except PermissionError:
+                        if is_copy:
+                            raise
+                        copy_path = suggested_copy_path(meta.path)
+                        shutil.copy2(meta.path, copy_path)
+                        make_writable(copy_path)
+                        meta = load(str(copy_path))
+                        clear_embedded_properties(meta)
+                        is_copy = True
+                    succeeded += 1
+                    detail = f"已另存为：{meta.path.name}" if is_copy else "属性已清除"
+                    table.item(rows[path], values=(path, "成功", detail))
+                except Exception as exc:
+                    failed += 1
+                    table.item(rows[path], values=(path, "失败", str(exc)))
+                dialog.update_idletasks()
+            progress.configure(text=f"处理完成：成功 {succeeded}，失败 {failed}")
+            close_button.configure(state="normal")
+            messagebox.showinfo("批量清除完成", f"成功：{succeeded}\n失败：{failed}\n详细结果见列表。", parent=dialog)
+
+        start_button.configure(command=start)
 
 
 def launch():
