@@ -5,17 +5,25 @@
 ## 运行
 
 ```powershell
+<<<<<<< HEAD
 pip install -r requirements.txt
 python app.py
 ```
 
 已打包的 EXE 无需安装 Python 或联网；从源码运行时仅需安装 `pypdf`。
+=======
+python app.py
+```
+
+无需网络连接或第三方 Python 包。
+>>>>>>> origin/main
 
 ## 当前支持
 
 - Office Open XML：`.docx`、`.xlsx`、`.pptx` 及其宏/模板变体
   - 核心属性、应用属性、自定义属性
   - Windows 创建/修改时间
+<<<<<<< HEAD
 - PDF：常用 Info 与 XMP 元数据及文件系统时间（不支持加密 PDF）
 
 旧式 `.doc`、`.xls`、`.ppt` 为二进制复合文档，当前只读提示；请另存为新版格式后编辑。
@@ -27,3 +35,10 @@ python app.py
 ## 批量清除
 
 点击“批量清除”可多选 Office 与 PDF 文件。程序会逐个清除嵌入属性、保留每个文件的 Windows 文件时间，并在结果列表中显示成功、跳过或失败原因。单个文件失败不会中断其余文件；加密和数字签名 PDF 会安全跳过。
+=======
+- PDF：常用 Info 元数据及文件系统时间（不支持加密 PDF）
+
+旧式 `.doc`、`.xls`、`.ppt` 为二进制复合文档，当前只读提示；请另存为新版格式后编辑。
+
+保存前可选择创建 `.metadata-backup` 备份；“清除嵌入属性”不会修改 Windows 文件系统时间。
+>>>>>>> origin/main
