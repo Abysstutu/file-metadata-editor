@@ -1,0 +1,8 @@
+# Keep source files consistent across Windows and macOS contributors.
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+*.cmd text eol=crlf
+
+# Source archive files are binary.
+*.zip binary

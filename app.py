@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """Application entry point with Windows high-DPI support enabled before Tk starts."""
 
 import ctypes
@@ -21,8 +20,6 @@ def enable_high_dpi() -> None:
 
 enable_high_dpi()
 
-=======
->>>>>>> origin/main
 from metadata_editor.ui import launch
 
 

@@ -1,8 +1,21 @@
+# Python
 __pycache__/
 *.py[cod]
-*.metadata-backup
+
+# Generated packages and build output
 outputs/
-<<<<<<< HEAD
 work/
-=======
->>>>>>> origin/main
+build/
+dist/
+*.spec
+
+# Runtime backup files
+*.metadata-backup
+*.已清除属性.*
+*.已修改属性.*
+
+# Local environment and editor settings
+.venv/
+venv/
+.idea/
+.vscode/
