@@ -8,6 +8,10 @@ work/
 build/
 dist/
 *.spec
+legacy_helper/target/
+**/.maven-cache/
+_build_vendor/
+_build_runtime/
 
 # Runtime backup files
 *.metadata-backup

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import datetime as dt
+import base64
 import ctypes
 import os
 import re
 import shutil
 import stat
+import subprocess
+import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
@@ -312,10 +315,89 @@ def clear_embedded_properties(meta: Metadata) -> None:
     """Clear document-internal metadata without changing filesystem timestamps."""
     if meta.kind == "Office":
         write_office(meta, {key: "" for key, _ in FIELDS}, {}, True)
+    elif meta.kind == "Legacy Office":
+        write_legacy(meta, {}, True)
     elif meta.kind == "PDF":
         write_pdf(meta, {}, True)
     else:
         raise ValueError("不支持清除该文件类型的属性。")
+
+
+def _legacy_helper_jar() -> Path:
+    package_root = Path(__file__).resolve().parent.parent
+    bundled_root = Path(getattr(sys, "_MEIPASS", package_root))
+    candidates = [
+        bundled_root / "legacy_helper" / "legacy-metadata-helper.jar",
+        package_root / "legacy_helper" / "legacy-metadata-helper.jar",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise RuntimeError(
+        "旧版 Office 兼容组件尚未安装。请构建 legacy_helper 并将 "
+        "legacy-metadata-helper.jar 放入 legacy_helper 文件夹。"
+    )
+
+
+def _java_executable() -> str:
+    """Resolve Java without requiring a system-wide installation."""
+    configured = os.environ.get("FILE_METADATA_JAVA")
+    if configured:
+        return configured
+    package_root = Path(__file__).resolve().parent.parent
+    bundled_root = Path(getattr(sys, "_MEIPASS", package_root))
+    bundled_java = bundled_root / "runtime" / "bin" / ("java.exe" if os.name == "nt" else "java")
+    if bundled_java.exists():
+        return str(bundled_java)
+    return "java"
+
+
+def _run_legacy_helper(*args: str, values: dict[str, str] | None = None) -> str:
+    java = _java_executable()
+    payload = ""
+    if values is not None:
+        payload = "\n".join(
+            f"{key}\t{base64.b64encode(value.encode('utf-8')).decode('ascii')}"
+            for key, value in values.items()
+        ) + "\n"
+    try:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        completed = subprocess.run(
+            [java, "-jar", str(_legacy_helper_jar()), *args],
+            input=payload, text=True, encoding="utf-8", capture_output=True, check=False,
+            creationflags=creationflags,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("未找到 Java 运行环境，无法处理旧版 .doc/.xls/.ppt 文件。") from exc
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip()
+        raise RuntimeError(f"旧版 Office 属性处理失败：{detail or 'Java 辅助程序异常'}")
+    return completed.stdout
+
+
+def read_legacy(path: Path) -> Metadata:
+    result = Metadata(path, "Legacy Office")
+    result.values.update(filesystem_values(path))
+    output = _run_legacy_helper("read", str(path))
+    for line in output.splitlines():
+        try:
+            key, encoded = line.split("\t", 1)
+            result.values[key] = base64.b64decode(encoded).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            continue
+    return result
+
+
+def write_legacy(meta: Metadata, values: dict[str, str], clear: bool) -> None:
+    descriptor, tmp_name = tempfile.mkstemp(suffix=meta.path.suffix, dir=meta.path.parent)
+    os.close(descriptor)
+    tmp = Path(tmp_name)
+    try:
+        _run_legacy_helper("write", str(meta.path), str(tmp), str(clear).lower(), values=values)
+        os.replace(tmp, meta.path)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
 
 
 def load(path: str) -> Metadata:
@@ -323,7 +405,7 @@ def load(path: str) -> Metadata:
     suffix = item.suffix.lower()
     if suffix in OFFICE_SUFFIXES: return read_office(item)
     if suffix == ".pdf": return read_pdf(item)
-    if suffix in LEGACY_SUFFIXES: raise ValueError("旧版 Office 二进制文件暂不支持。请在 Word、Excel 或 WPS 中另存为 DOCX/XLSX/PPTX 后再编辑。")
+    if suffix in LEGACY_SUFFIXES: return read_legacy(item)
     raise ValueError("仅支持新版 Office 文档和 PDF。")
 
 

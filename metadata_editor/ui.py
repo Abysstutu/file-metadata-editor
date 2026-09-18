@@ -4,7 +4,7 @@ import shutil
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from .engine import FIELDS, PDF_FIELDS, Metadata, backup, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, suggested_copy_path, write_office, write_pdf
+from .engine import FIELDS, PDF_FIELDS, Metadata, backup, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, suggested_copy_path, write_legacy, write_office, write_pdf
 
 
 class Editor(tk.Tk):
@@ -101,7 +101,7 @@ class Editor(tk.Tk):
             return "break"
 
     def choose(self):
-        path = filedialog.askopenfilename(filetypes=[("支持的文件", "*.docx *.xlsx *.pptx *.docm *.xlsm *.pptm *.dotx *.xltx *.potx *.pdf"), ("所有文件", "*.*")])
+        path = filedialog.askopenfilename(filetypes=[("支持的文件", "*.doc *.xls *.ppt *.docx *.xlsx *.pptx *.docm *.xlsm *.pptm *.dotx *.xltx *.potx *.pdf"), ("所有文件", "*.*")])
         if path: self.open(path)
 
     def open(self, path: str):
@@ -129,6 +129,8 @@ class Editor(tk.Tk):
             box = ttk.Labelframe(self.form, text=" 自定义属性（每行：名称 = 值） ", style="Card.TLabelframe", padding=10); box.pack(fill="x", pady=(0, 12))
             self.custom_text = tk.Text(box, height=5, font=("Consolas", 10), relief="solid", borderwidth=1)
             self.custom_text.pack(fill="x"); self.custom_text.insert("1.0", "\n".join(f"{k} = {v}" for k, v in self.meta.custom.items()))
+        elif self.meta.kind == "Legacy Office":
+            ttk.Label(self.form, text="旧版 Office 使用 Apache POI 属性流兼容层。创建内容时间等字段暂不支持单独修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
         else:
             ttk.Label(self.form, text="PDF 会重写元数据保存。加密或已签名 PDF 将拒绝修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
 
@@ -197,6 +199,7 @@ class Editor(tk.Tk):
             values = {key: var.get().strip() for key, var in self.vars.items()}
             try:
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
+                elif meta.kind == "Legacy Office": write_legacy(meta, values, False)
                 else: write_pdf(meta, values, False)
             except PermissionError:
                 if is_copy: raise
@@ -204,6 +207,7 @@ class Editor(tk.Tk):
                 if copy is None: return
                 meta, is_copy = copy, True
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
+                elif meta.kind == "Legacy Office": write_legacy(meta, values, False)
                 else: write_pdf(meta, values, False)
             set_filesystem_times(meta.path, values["filesystem_created"], values["filesystem_modified"])
             self.open(str(meta.path))
@@ -233,7 +237,7 @@ class Editor(tk.Tk):
     def batch_clear(self):
         paths = filedialog.askopenfilenames(
             title="选择要清除属性的文件",
-            filetypes=[("支持的文件", "*.docx *.xlsx *.pptx *.docm *.xlsm *.pptm *.dotx *.xltx *.potx *.dotm *.xltm *.potm *.ppsx *.ppsm *.pdf")],
+            filetypes=[("支持的文件", "*.doc *.xls *.ppt *.docx *.xlsx *.pptx *.docm *.xlsm *.pptm *.dotx *.xltx *.potx *.dotm *.xltm *.potm *.ppsx *.ppsm *.pdf")],
         )
         if not paths:
             return

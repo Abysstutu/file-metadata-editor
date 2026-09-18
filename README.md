@@ -8,16 +8,19 @@
   - 核心属性、应用属性、自定义属性
   - Windows 创建时间、修改时间
 - PDF：Info 与 XMP 元数据
+- 旧版 Office：`.doc`、`.xls`、`.ppt` 的标准属性流（需配套 Java 兼容组件）
 - 批量清除嵌入属性
 - 保存前自动备份；文件只读或被占用时另存为可修改副本
 
-不支持旧版二进制格式 `.doc`、`.xls`、`.ppt`。请先在 Word、Excel、PowerPoint 或 WPS 中另存为新版格式。
+旧版 Office 兼容层仅修改 OLE 标准属性流，不转换或重新排版文档内容；加密、损坏或受数字签名保护的旧文件会拒绝处理。
 
 ## 使用方式
 
 ### 直接运行 Windows 版
 
-从发布包中运行 `文件源数据编辑.exe`，无需安装 Python。
+从发布包中运行 `文件源数据编辑.exe`，无需安装 Python。处理 `.docx`、`.xlsx`、`.pptx` 与 PDF 时也无需 Java。
+
+新版 EXE 已内置旧版 Office 所需的 Java 运行时与 POI 兼容组件，处理 `.doc`、`.xls`、`.ppt` 无需另外安装 Java、Maven 或下载 JAR。
 
 ### 从源码运行
 
@@ -25,6 +28,8 @@
 python -m pip install -r requirements.txt
 python app.py
 ```
+
+从源码运行时，处理 `.doc`、`.xls`、`.ppt` 还需要 Java 11+ 与 `legacy_helper/legacy-metadata-helper.jar`。该辅助程序的源码和构建说明位于 `legacy_helper/`。
 
 ## 功能说明
 
@@ -53,6 +58,7 @@ python app.py
 ```text
 app.py                 程序入口与 Windows 高 DPI 配置
 metadata_editor/       元数据读写与 Tkinter 界面
+legacy_helper/          Apache POI 旧版 Office 属性兼容组件
 requirements.txt       源码运行依赖
 run.cmd                Windows 快捷启动脚本
 high-dpi.manifest      Windows 高 DPI 清单
