@@ -22,6 +22,8 @@
 
 新版 EXE 已内置旧版 Office 所需的 Java 运行时与 POI 兼容组件，处理 `.doc`、`.xls`、`.ppt` 无需另外安装 Java、Maven 或下载 JAR。
 
+建议从 GitHub Releases 下载最新的 `文件源数据编辑.exe`。仓库中的 `outputs/` 仅用于本地构建，不属于源码提交内容。
+
 ### 从源码运行
 
 ```powershell
@@ -63,6 +65,8 @@ requirements.txt       源码运行依赖
 run.cmd                Windows 快捷启动脚本
 high-dpi.manifest      Windows 高 DPI 清单
 ```
+
+仓库不保存历史 ZIP 源码包；源码以 Git 历史维护，用户使用 Release 中的 EXE。
 
 ## 许可
 
