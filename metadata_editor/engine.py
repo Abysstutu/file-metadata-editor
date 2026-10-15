@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -18,6 +19,15 @@ from xml.etree import ElementTree as ET
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DictionaryObject
 from pypdf.xmp import XmpInformation
+try:
+    from PIL import Image, ExifTags
+except ImportError:  # optional for source installations
+    Image = None
+    ExifTags = None
+try:
+    from mutagen import File as MutagenFile
+except ImportError:
+    MutagenFile = None
 
 CORE = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
 DC = "http://purl.org/dc/elements/1.1/"
@@ -31,6 +41,11 @@ for prefix, uri in {"cp": CORE, "dc": DC, "dcterms": DCTERMS, "vt": VT}.items():
 
 OFFICE_SUFFIXES = {".docx", ".xlsx", ".pptx", ".docm", ".xlsm", ".pptm", ".dotx", ".xltx", ".potx", ".dotm", ".xltm", ".potm", ".ppsx", ".ppsm"}
 LEGACY_SUFFIXES = {".doc", ".xls", ".ppt"}
+MARKDOWN_SUFFIXES = {".md", ".markdown", ".mdown", ".mkd"}
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
+ZIP_SUFFIXES = {".zip"}
+AUDIO_SUFFIXES = {".mp3", ".flac", ".m4a", ".wav"}
+VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv"}
 
 FIELDS = [
     ("title", "标题"), ("subject", "主题"), ("creator", "作者"), ("lastModifiedBy", "最后保存者"),
@@ -40,6 +55,10 @@ FIELDS = [
     ("company", "公司"), ("manager", "管理者"), ("hyperlinkBase", "超链接基址"), ("template", "文档模板"),
 ]
 PDF_FIELDS = [("title", "标题"), ("author", "作者"), ("subject", "主题"), ("keywords", "关键词"), ("creator", "Creator"), ("producer", "Producer"), ("created", "创建内容时间"), ("modified", "修改内容时间")]
+MARKDOWN_FIELDS = [("title", "标题"), ("author", "作者"), ("date", "日期"), ("description", "描述"), ("tags", "标签"), ("category", "分类")]
+IMAGE_FIELDS = [("title", "标题"), ("author", "作者"), ("description", "描述"), ("created", "拍摄时间"), ("gps", "GPS")]
+ZIP_FIELDS = [("comment", "压缩包注释"), ("file_count", "文件数量")]
+MEDIA_FIELDS = [("title", "标题"), ("author", "作者"), ("album", "专辑"), ("date", "日期"), ("genre", "类型"), ("description", "描述")]
 
 
 @dataclass
@@ -70,6 +89,153 @@ def filesystem_values(path: Path) -> dict[str, str]:
         "filesystem_created": dt.datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S"),
         "filesystem_modified": dt.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
     }
+
+
+def _markdown_parts(path: Path) -> tuple[str, str, str]:
+    text = path.read_text(encoding="utf-8-sig")
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        return "", text, ""
+    for index in range(1, len(lines)):
+        if lines[index].strip() in {"---", "..."}:
+            return "".join(lines[1:index]), "".join(lines[index + 1:]), "".join(lines[:index + 1])
+    return "", text, ""
+
+
+def read_markdown(path: Path) -> Metadata:
+    result = Metadata(path, "Markdown")
+    result.values.update(filesystem_values(path))
+    frontmatter, _, _ = _markdown_parts(path)
+    for line in frontmatter.splitlines():
+        if not line.strip() or line.lstrip().startswith("#") or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key, value = key.strip(), value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        result.values[key] = value
+    return result
+
+
+def write_markdown(meta: Metadata, values: dict[str, str], clear: bool = False) -> None:
+    text = meta.path.read_text(encoding="utf-8-sig")
+    frontmatter, body, _ = _markdown_parts(meta.path)
+    if clear:
+        meta.path.write_text(body, encoding="utf-8")
+        return
+    known = {key for key, _ in MARKDOWN_FIELDS}
+    fields = [(key, values.get(key, "").strip()) for key, _ in MARKDOWN_FIELDS]
+    for line in frontmatter.splitlines():
+        if ":" not in line or line.lstrip().startswith("#"):
+            continue
+        key, value = line.split(":", 1)
+        key, value = key.strip(), value.strip()
+        if key and key not in known:
+            fields.append((key, value))
+    lines = ["---\n"] + [f"{key}: {value}\n" for key, value in fields if value] + ["---\n"]
+    meta.path.write_text("".join(lines) + body, encoding="utf-8")
+
+
+def read_image(path: Path) -> Metadata:
+    result = Metadata(path, "Image")
+    result.values.update(filesystem_values(path))
+    if Image is None:
+        raise RuntimeError("图片功能需要安装 Pillow。")
+    with Image.open(path) as image:
+        exif = image.getexif()
+        names = {ExifTags.TAGS.get(key, str(key)): value for key, value in exif.items()} if ExifTags else {}
+        result.values.update({"title": str(names.get("ImageDescription", "")), "author": str(names.get("Artist", "")), "description": str(names.get("XPComment", "")), "created": str(names.get("DateTimeOriginal", "")), "gps": str(names.get("GPSInfo", ""))})
+    return result
+
+
+def write_image(meta: Metadata, values: dict[str, str], clear: bool = False) -> None:
+    if Image is None:
+        raise RuntimeError("图片功能需要安装 Pillow。")
+    with Image.open(meta.path) as image:
+        exif = image.getexif()
+        tags = {"title": 270, "author": 315, "description": 37510, "created": 36867}
+        for key, tag in tags.items():
+            value = "" if clear else values.get(key, "").strip()
+            if value: exif[tag] = value
+            elif tag in exif: del exif[tag]
+        tmp = meta.path.with_name(f".{meta.path.name}.metadata-tmp")
+        image.save(tmp, exif=exif.tobytes(), format=image.format)
+    os.replace(tmp, meta.path)
+
+
+def read_zip(path: Path) -> Metadata:
+    result = Metadata(path, "Archive")
+    result.values.update(filesystem_values(path))
+    with zipfile.ZipFile(path) as archive:
+        result.values.update({"comment": archive.comment.decode("utf-8", "replace"), "file_count": str(len(archive.infolist()))})
+    return result
+
+
+def write_zip(meta: Metadata, values: dict[str, str], clear: bool = False) -> None:
+    tmp = meta.path.with_name(f".{meta.path.name}.metadata-tmp")
+    with zipfile.ZipFile(meta.path) as source, zipfile.ZipFile(tmp, "w") as target:
+        target.comment = b"" if clear else values.get("comment", "").encode("utf-8")
+        for item in source.infolist():
+            target.writestr(item, source.read(item.filename))
+    os.replace(tmp, meta.path)
+
+
+def read_audio(path: Path) -> Metadata:
+    if MutagenFile is None:
+        raise RuntimeError("音频功能需要安装 mutagen：python -m pip install mutagen")
+    result = Metadata(path, "Audio"); result.values.update(filesystem_values(path))
+    audio = MutagenFile(path, easy=True)
+    if audio is not None:
+        for key, target in {"title": "title", "artist": "author", "album": "album", "date": "date", "genre": "genre", "comment": "description"}.items():
+            value = audio.get(key, [""])
+            result.values[target] = str(value[0]) if value else ""
+    return result
+
+
+def write_audio(meta: Metadata, values: dict[str, str], clear: bool = False) -> None:
+    if MutagenFile is None:
+        raise RuntimeError("音频功能需要安装 mutagen：python -m pip install mutagen")
+    audio = MutagenFile(meta.path, easy=True)
+    if audio is None: raise ValueError("无法识别音频容器。")
+    if audio.tags is None: audio.add_tags()
+    mapping = {"title": "title", "author": "artist", "album": "album", "date": "date", "genre": "genre", "description": "comment"}
+    for source, target in mapping.items():
+        value = "" if clear else values.get(source, "").strip()
+        if value: audio[target] = [value]
+        elif target in audio: del audio[target]
+    audio.save()
+
+
+def _ffprobe() -> str:
+    return os.environ.get("FILE_METADATA_FFPROBE", "ffprobe")
+
+
+def read_video(path: Path) -> Metadata:
+    result = Metadata(path, "Video"); result.values.update(filesystem_values(path))
+    try:
+        completed = subprocess.run([_ffprobe(), "-v", "quiet", "-print_format", "json", "-show_format", str(path)], text=True, capture_output=True, check=True)
+        tags = json.loads(completed.stdout).get("format", {}).get("tags", {})
+        for source, target in {"title": "title", "artist": "author", "comment": "description", "date": "date"}.items(): result.values[target] = str(tags.get(source, tags.get(source.title(), "")))
+    except FileNotFoundError as exc:
+        raise RuntimeError("视频功能需要 ffprobe；请安装 FFmpeg，或设置 FILE_METADATA_FFPROBE。") from exc
+    return result
+
+
+def write_video(meta: Metadata, values: dict[str, str], clear: bool = False) -> None:
+    tmp = meta.path.with_name(f".{meta.path.name}.metadata-tmp{meta.path.suffix}")
+    command = ["ffmpeg", "-y", "-i", str(meta.path), "-map", "0", "-c", "copy"]
+    if clear: command += ["-map_metadata", "-1"]
+    else:
+        for key in ("title", "author", "description", "date"):
+            if values.get(key, "").strip(): command += ["-metadata", f"{key}={values[key].strip()}"]
+    command += [str(tmp)]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError("视频写入需要 FFmpeg；请安装 FFmpeg，或将其加入 PATH。") from exc
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"视频元数据写入失败：{(exc.stderr or '').strip()[-500:]}") from exc
+    os.replace(tmp, meta.path)
 
 
 def set_filesystem_times(path: Path, created: str, modified: str) -> None:
@@ -319,6 +485,16 @@ def clear_embedded_properties(meta: Metadata) -> None:
         write_legacy(meta, {}, True)
     elif meta.kind == "PDF":
         write_pdf(meta, {}, True)
+    elif meta.kind == "Markdown":
+        write_markdown(meta, {}, True)
+    elif meta.kind == "Image":
+        write_image(meta, {}, True)
+    elif meta.kind == "Archive":
+        write_zip(meta, {}, True)
+    elif meta.kind == "Audio":
+        write_audio(meta, {}, True)
+    elif meta.kind == "Video":
+        write_video(meta, {}, True)
     else:
         raise ValueError("不支持清除该文件类型的属性。")
 
@@ -406,7 +582,12 @@ def load(path: str) -> Metadata:
     if suffix in OFFICE_SUFFIXES: return read_office(item)
     if suffix == ".pdf": return read_pdf(item)
     if suffix in LEGACY_SUFFIXES: return read_legacy(item)
-    raise ValueError("仅支持新版 Office 文档和 PDF。")
+    if suffix in MARKDOWN_SUFFIXES: return read_markdown(item)
+    if suffix in IMAGE_SUFFIXES: return read_image(item)
+    if suffix in ZIP_SUFFIXES: return read_zip(item)
+    if suffix in AUDIO_SUFFIXES: return read_audio(item)
+    if suffix in VIDEO_SUFFIXES: return read_video(item)
+    raise ValueError("仅支持 Office、PDF 和 Markdown 文件。")
 
 
 def backup(path: Path) -> Path:

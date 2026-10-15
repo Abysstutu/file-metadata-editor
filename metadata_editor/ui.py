@@ -4,10 +4,19 @@ import shutil
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from .engine import FIELDS, PDF_FIELDS, Metadata, backup, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, suggested_copy_path, write_legacy, write_office, write_pdf
+from .engine import AUDIO_SUFFIXES, FIELDS, IMAGE_FIELDS, LEGACY_SUFFIXES, MARKDOWN_FIELDS, MARKDOWN_SUFFIXES, MEDIA_FIELDS, OFFICE_SUFFIXES, PDF_FIELDS, VIDEO_SUFFIXES, ZIP_FIELDS, ZIP_SUFFIXES, IMAGE_SUFFIXES, Metadata, backup, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, suggested_copy_path, write_audio, write_image, write_legacy, write_markdown, write_office, write_pdf, write_video, write_zip
+
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+except ImportError:  # Drag and drop is optional for source runs without installed requirements.
+    DND_FILES = None
+    TkinterDnD = None
+
+SUPPORTED_SUFFIXES = OFFICE_SUFFIXES | LEGACY_SUFFIXES | MARKDOWN_SUFFIXES | IMAGE_SUFFIXES | AUDIO_SUFFIXES | VIDEO_SUFFIXES | ZIP_SUFFIXES | {".pdf"}
+_TkBase = TkinterDnD.Tk if TkinterDnD else tk.Tk
 
 
-class Editor(tk.Tk):
+class Editor(_TkBase):
     def __init__(self):
         super().__init__()
         self.title("文件源数据编辑")
@@ -50,6 +59,8 @@ class Editor(tk.Tk):
         ttk.Entry(chooser, textvariable=self.path_var).pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(chooser, text="选择文件", command=self.choose).pack(side="left")
         ttk.Button(chooser, text="批量清除", command=self.batch_clear).pack(side="left", padx=(8, 0))
+        self.drop_hint = ttk.Label(outer, text="也可以将单个文件拖到此窗口打开；多个文件请拖入“批量清除”窗口。", style="Muted.TLabel")
+        self.drop_hint.pack(anchor="w", pady=(0, 8))
         body = ttk.Panedwindow(outer, orient="horizontal")
         left = ttk.Labelframe(body, text=" 文件信息 ", style="Card.TLabelframe", padding=8)
         right = ttk.Labelframe(body, text=" 编辑属性 ", style="Card.TLabelframe", padding=14)
@@ -80,6 +91,15 @@ class Editor(tk.Tk):
         # Let the wheel work naturally even when the pointer is above an entry,
         # label, or nested form widget rather than only above the scrollbar.
         self.bind_all("<MouseWheel>", self._mousewheel, add="+")
+        self._register_drop_targets(self)
+
+    def _register_drop_targets(self, widget):
+        if not DND_FILES:
+            return
+        widget.drop_target_register(DND_FILES)
+        widget.dnd_bind("<<Drop>>", self._drop_main)
+        for child in widget.winfo_children():
+            self._register_drop_targets(child)
 
     @staticmethod
     def _inside(widget, ancestor):
@@ -101,8 +121,20 @@ class Editor(tk.Tk):
             return "break"
 
     def choose(self):
-        path = filedialog.askopenfilename(filetypes=[("支持的文件", "*.doc *.xls *.ppt *.docx *.xlsx *.pptx *.docm *.xlsm *.pptm *.dotx *.xltx *.potx *.pdf"), ("所有文件", "*.*")])
+        path = filedialog.askopenfilename(filetypes=[("支持的文件", " ".join(f"*{suffix}" for suffix in sorted(SUPPORTED_SUFFIXES))), ("所有文件", "*.*")])
         if path: self.open(path)
+
+    def _drop_main(self, event):
+        paths = [Path(path) for path in self.tk.splitlist(event.data)]
+        paths = [path for path in paths if path.is_file()]
+        if len(paths) == 1:
+            if paths[0].suffix.lower() in SUPPORTED_SUFFIXES:
+                self.open(str(paths[0]))
+            else:
+                messagebox.showwarning("不支持的文件", f"暂不支持此文件类型：{paths[0].suffix or '无扩展名'}", parent=self)
+        elif len(paths) > 1:
+            messagebox.showinfo("请使用批量清除", "主窗口一次打开一个文件。请点击“批量清除”，再将多个文件拖入批量窗口。", parent=self)
+        return "break"
 
     def open(self, path: str):
         try:
@@ -117,13 +149,15 @@ class Editor(tk.Tk):
         self.tree.insert(fs, "end", text="创建时间", values=(self.meta.values.get("filesystem_created", ""),))
         self.tree.insert(fs, "end", text="修改时间", values=(self.meta.values.get("filesystem_modified", ""),))
         props = self.tree.insert("", "end", text=f"{self.meta.kind} 属性", open=True)
-        for key, label in (PDF_FIELDS if self.meta.kind == "PDF" else FIELDS): self.tree.insert(props, "end", text=label, values=(self.meta.values.get(key, ""),))
+        fields = PDF_FIELDS if self.meta.kind == "PDF" else MARKDOWN_FIELDS if self.meta.kind == "Markdown" else IMAGE_FIELDS if self.meta.kind == "Image" else ZIP_FIELDS if self.meta.kind == "Archive" else MEDIA_FIELDS if self.meta.kind in {"Audio", "Video"} else FIELDS
+        for key, label in fields: self.tree.insert(props, "end", text=label, values=(self.meta.values.get(key, ""),))
         if self.meta.kind == "Office":
             custom_node = self.tree.insert("", "end", text="自定义属性", open=True)
             for key, value in self.meta.custom.items(): self.tree.insert(custom_node, "end", text=key, values=(value,))
         self.vars = {}
         self._section("文件系统时间", [("filesystem_created", "创建时间"), ("filesystem_modified", "修改时间")], readonly=False)
-        groups = [("来源与描述", [x for x in (PDF_FIELDS if self.meta.kind == "PDF" else FIELDS) if x[0] not in {"created", "modified", "lastPrinted", "totalTime"}]), ("文档元数据时间", [x for x in (PDF_FIELDS if self.meta.kind == "PDF" else FIELDS) if x[0] in {"created", "modified", "lastPrinted", "totalTime"}])]
+        fields = PDF_FIELDS if self.meta.kind == "PDF" else MARKDOWN_FIELDS if self.meta.kind == "Markdown" else IMAGE_FIELDS if self.meta.kind == "Image" else ZIP_FIELDS if self.meta.kind == "Archive" else MEDIA_FIELDS if self.meta.kind in {"Audio", "Video"} else FIELDS
+        groups = [("来源与描述", [x for x in fields if x[0] not in {"created", "modified", "lastPrinted", "totalTime"}]), ("文档元数据时间", [x for x in fields if x[0] in {"created", "modified", "lastPrinted", "totalTime"}])]
         for title, fields in groups: self._section(title, fields)
         if self.meta.kind == "Office":
             box = ttk.Labelframe(self.form, text=" 自定义属性（每行：名称 = 值） ", style="Card.TLabelframe", padding=10); box.pack(fill="x", pady=(0, 12))
@@ -131,8 +165,19 @@ class Editor(tk.Tk):
             self.custom_text.pack(fill="x"); self.custom_text.insert("1.0", "\n".join(f"{k} = {v}" for k, v in self.meta.custom.items()))
         elif self.meta.kind == "Legacy Office":
             ttk.Label(self.form, text="旧版 Office 使用 Apache POI 属性流兼容层。创建内容时间等字段暂不支持单独修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+        elif self.meta.kind == "Markdown":
+            ttk.Label(self.form, text="Markdown 元数据使用 YAML Front Matter 保存；没有时保存会自动创建，清除会移除整个 Front Matter。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+        elif self.meta.kind == "Image":
+            ttk.Label(self.form, text="图片编辑 EXIF 常用字段；PNG 不含 EXIF 时不会强行写入。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+        elif self.meta.kind == "Archive":
+            ttk.Label(self.form, text="压缩包支持 ZIP 注释；清除属性会清空注释，不会删除文件内容。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+        elif self.meta.kind == "Audio":
+            ttk.Label(self.form, text="音频标签使用 Mutagen 写入。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+        elif self.meta.kind == "Video":
+            ttk.Label(self.form, text="视频标签使用 FFmpeg 无损封装复制写入，处理时间取决于文件大小。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
         else:
             ttk.Label(self.form, text="PDF 会重写元数据保存。加密或已签名 PDF 将拒绝修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+        self._register_drop_targets(self.form)
 
     def _section(self, title, fields, readonly=False):
         box = ttk.Labelframe(self.form, text=f" {title} ", style="Card.TLabelframe", padding=10); box.pack(fill="x", pady=(0, 12))
@@ -200,6 +245,11 @@ class Editor(tk.Tk):
             try:
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
                 elif meta.kind == "Legacy Office": write_legacy(meta, values, False)
+                elif meta.kind == "Markdown": write_markdown(meta, values)
+                elif meta.kind == "Image": write_image(meta, values)
+                elif meta.kind == "Archive": write_zip(meta, values)
+                elif meta.kind == "Audio": write_audio(meta, values)
+                elif meta.kind == "Video": write_video(meta, values)
                 else: write_pdf(meta, values, False)
             except PermissionError:
                 if is_copy: raise
@@ -208,6 +258,11 @@ class Editor(tk.Tk):
                 meta, is_copy = copy, True
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
                 elif meta.kind == "Legacy Office": write_legacy(meta, values, False)
+                elif meta.kind == "Markdown": write_markdown(meta, values)
+                elif meta.kind == "Image": write_image(meta, values)
+                elif meta.kind == "Archive": write_zip(meta, values)
+                elif meta.kind == "Audio": write_audio(meta, values)
+                elif meta.kind == "Video": write_video(meta, values)
                 else: write_pdf(meta, values, False)
             set_filesystem_times(meta.path, values["filesystem_created"], values["filesystem_modified"])
             self.open(str(meta.path))
@@ -235,15 +290,10 @@ class Editor(tk.Tk):
         except Exception as e: messagebox.showerror("清除失败", str(e))
 
     def batch_clear(self):
-        paths = filedialog.askopenfilenames(
-            title="选择要清除属性的文件",
-            filetypes=[("支持的文件", "*.doc *.xls *.ppt *.docx *.xlsx *.pptx *.docm *.xlsm *.pptm *.dotx *.xltx *.potx *.dotm *.xltm *.potm *.ppsx *.ppsm *.pdf")],
-        )
-        if not paths:
-            return
-        self._show_batch_dialog(list(dict.fromkeys(paths)))
+        self._show_batch_dialog([])
 
     def _show_batch_dialog(self, paths: list[str]):
+        initial_paths = list(paths)
         dialog = tk.Toplevel(self)
         dialog.title("批量清除嵌入属性")
         dialog.transient(self)
@@ -253,7 +303,8 @@ class Editor(tk.Tk):
         frame = ttk.Frame(dialog, padding=16)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="批量清除嵌入属性", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(frame, text=f"已选择 {len(paths)} 个文件。将清除 Office/PDF 的内嵌属性，不修改 Windows 文件时间。", style="Muted.TLabel").pack(anchor="w", pady=(3, 12))
+        hint = ttk.Label(frame, text="将文件拖到此窗口，或点击“添加文件”。支持一次加入多个文件。", style="Muted.TLabel")
+        hint.pack(anchor="w", pady=(3, 12))
         table = ttk.Treeview(frame, columns=("file", "status", "detail"), show="headings")
         table.heading("file", text="文件")
         table.heading("status", text="状态")
@@ -265,7 +316,8 @@ class Editor(tk.Tk):
         table.configure(yscrollcommand=scrollbar.set)
         table.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-        rows = {path: table.insert("", "end", values=(path, "等待", "")) for path in paths}
+        rows = {}
+        paths = []
 
         footer = ttk.Frame(dialog, padding=(16, 0, 16, 16))
         footer.pack(fill="x")
@@ -273,14 +325,62 @@ class Editor(tk.Tk):
         ttk.Label(footer, text="保存前备份：").pack(side="left")
         ttk.Radiobutton(footer, text="是", variable=batch_backup, value=True).pack(side="left", padx=(2, 8))
         ttk.Radiobutton(footer, text="否", variable=batch_backup, value=False).pack(side="left")
-        progress = ttk.Label(footer, text="等待开始", style="Muted.TLabel")
+        progress = ttk.Label(footer, text="等待添加文件", style="Muted.TLabel")
         progress.pack(side="left", padx=16)
         close_button = ttk.Button(footer, text="关闭", command=dialog.destroy)
         close_button.pack(side="right")
         start_button = ttk.Button(footer, text="开始清除", style="Accent.TButton")
         start_button.pack(side="right", padx=(0, 8))
+        start_button.configure(state="disabled")
+        add_button = ttk.Button(footer, text="添加文件")
+        add_button.pack(side="right", padx=(0, 8))
+
+        def add_paths(incoming):
+            added = 0
+            for item in incoming:
+                path = str(Path(item))
+                file_path = Path(path)
+                if not file_path.is_file() or file_path.suffix.lower() not in SUPPORTED_SUFFIXES or path in rows:
+                    continue
+                paths.append(path)
+                rows[path] = table.insert("", "end", values=(path, "等待", ""))
+                added += 1
+            count = len(paths)
+            hint.configure(text=f"已添加 {count} 个文件。将清除文件内嵌属性，不修改 Windows 文件时间；受保护文件会另存为可写副本。" if count else "将文件拖到此窗口，或点击“添加文件”。支持一次加入多个文件。")
+            progress.configure(text=f"已添加 {count} 个文件" if count else "等待添加文件")
+            start_button.configure(state="normal" if count else "disabled")
+            return added
+
+        def add_dropped(event):
+            incoming = self.tk.splitlist(event.data)
+            added = add_paths(incoming)
+            if not added:
+                messagebox.showwarning("没有可添加的文件", "请拖入本程序支持的文件，且文件需存在于本机。", parent=dialog)
+            return "break"
+
+        def add_from_picker():
+            incoming = filedialog.askopenfilenames(
+                parent=dialog,
+                title="添加要清除属性的文件",
+                filetypes=[("支持的文件", " ".join(f"*{suffix}" for suffix in sorted(SUPPORTED_SUFFIXES))), ("所有文件", "*.*")],
+            )
+            if incoming:
+                add_paths(incoming)
+
+        add_button.configure(command=add_from_picker)
+        if DND_FILES:
+            def register_batch_drop(widget):
+                widget.drop_target_register(DND_FILES)
+                widget.dnd_bind("<<Drop>>", add_dropped)
+                for child in widget.winfo_children():
+                    register_batch_drop(child)
+
+            register_batch_drop(dialog)
+        add_paths(initial_paths)
 
         def start():
+            if not paths:
+                return
             if not messagebox.askyesno("确认批量清除", f"确认清除这 {len(paths)} 个文件的所有内嵌属性吗？\n此操作将无法撤销。", parent=dialog):
                 return
             start_button.configure(state="disabled")

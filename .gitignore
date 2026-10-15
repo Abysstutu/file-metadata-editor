@@ -20,6 +20,7 @@ _build_runtime/
 
 # Local environment and editor settings
 .venv/
+.venv-*/
 venv/
 .idea/
 .vscode/

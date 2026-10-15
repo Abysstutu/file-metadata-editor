@@ -1,1 +1,4 @@
 pypdf>=6.10,<7
+Pillow>=10,<12
+mutagen>=1.47,<2
+tkinterdnd2>=0.4.2,<1
