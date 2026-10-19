@@ -164,13 +164,15 @@ def write_image(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
     image_api, _ = _load_pillow()
     with image_api.open(meta.path) as image:
         exif = image.getexif()
-        tags = {"title": 270, "author": 315, "description": 37510, "created": 36867}
-        if clear and 34853 in exif:
-            del exif[34853]
-        for key, tag in tags.items():
-            value = "" if clear else values.get(key, "").strip()
-            if value: exif[tag] = value
-            elif tag in exif: del exif[tag]
+        if clear:
+            for tag in list(exif):
+                del exif[tag]
+        else:
+            tags = {"title": 270, "author": 315, "description": 37510, "created": 36867}
+            for key, tag in tags.items():
+                value = values.get(key, "").strip()
+                if value: exif[tag] = value
+                elif tag in exif: del exif[tag]
         tmp = meta.path.with_name(f".{meta.path.name}.metadata-tmp")
         image.save(tmp, exif=exif.tobytes(), format=image.format)
     os.replace(tmp, meta.path)
@@ -227,9 +229,22 @@ def _ffprobe() -> str:
 def read_video(path: Path) -> Metadata:
     result = Metadata(path, "Video"); result.values.update(filesystem_values(path))
     try:
-        completed = subprocess.run([_ffprobe(), "-v", "quiet", "-print_format", "json", "-show_format", str(path)], text=True, capture_output=True, check=True)
-        tags = json.loads(completed.stdout).get("format", {}).get("tags", {})
-        for source, target in {"title": "title", "artist": "author", "comment": "description", "date": "date"}.items(): result.values[target] = str(tags.get(source, tags.get(source.title(), "")))
+        completed = subprocess.run(
+            [_ffprobe(), "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", str(path)],
+            text=True, capture_output=True, check=True,
+        )
+        probe = json.loads(completed.stdout)
+        format_info = probe.get("format", {})
+        tags = format_info.get("tags", {})
+        for source, target in {"title": "title", "artist": "author", "comment": "description", "date": "date"}.items():
+            result.values[target] = str(tags.get(source, tags.get(source.title(), "")))
+        all_tags = []
+        scopes = [("容器", tags)]
+        scopes.extend((f"音视频流 {item.get('index', index)}", item.get("tags", {})) for index, item in enumerate(probe.get("streams", [])))
+        scopes.extend((f"章节 {index + 1}", item.get("tags", {})) for index, item in enumerate(probe.get("chapters", [])))
+        for scope, scoped_tags in scopes:
+            all_tags.extend(f"{scope} / {key}: {value}" for key, value in scoped_tags.items() if str(value).strip())
+        result.values["_all_tags"] = "\n".join(all_tags)
     except FileNotFoundError as exc:
         raise RuntimeError("视频功能需要 ffprobe；请安装 FFmpeg，或设置 FILE_METADATA_FFPROBE。") from exc
     return result
@@ -238,7 +253,7 @@ def read_video(path: Path) -> Metadata:
 def write_video(meta: Metadata, values: dict[str, str], clear: bool = False) -> None:
     tmp = meta.path.with_name(f".{meta.path.name}.metadata-tmp{meta.path.suffix}")
     command = ["ffmpeg", "-y", "-i", str(meta.path), "-map", "0", "-c", "copy"]
-    if clear: command += ["-map_metadata", "-1"]
+    if clear: command += ["-map_metadata", "-1", "-map_metadata:s", "-1", "-map_chapters", "-1"]
     else:
         for key in ("title", "author", "description", "date"):
             if values.get(key, "").strip(): command += ["-metadata", f"{key}={values[key].strip()}"]
@@ -468,14 +483,15 @@ def write_pdf(meta: Metadata, values: dict[str, str], clear: bool) -> None:
     writer._info = writer._add_object(DictionaryObject())
     writer.add_metadata(info)
 
-    try:
-        xmp = reader.xmp_metadata or XmpInformation.create()
-    except Exception:
-        xmp = XmpInformation.create()
     if clear:
-        xmp.dc_title, xmp.dc_creator, xmp.dc_description, xmp.dc_subject = {}, [], {}, []
-        xmp.pdf_keywords = xmp.xmp_creator_tool = xmp.pdf_producer = ""
+        # Remove the entire XMP packet so unrecognized or vendor-specific fields
+        # cannot survive a "clear all properties" operation.
+        writer.xmp_metadata = None
     else:
+        try:
+            xmp = reader.xmp_metadata or XmpInformation.create()
+        except Exception:
+            xmp = XmpInformation.create()
         xmp.dc_title = {"x-default": values.get("title", "")}
         xmp.dc_creator = [values["author"]] if values.get("author") else []
         xmp.dc_description = {"x-default": values.get("subject", "")}
@@ -483,7 +499,7 @@ def write_pdf(meta: Metadata, values: dict[str, str], clear: bool) -> None:
         xmp.pdf_keywords = values.get("keywords", "")
         xmp.xmp_creator_tool = values.get("creator", "")
         xmp.pdf_producer = values.get("producer", "")
-    writer.xmp_metadata = xmp
+        writer.xmp_metadata = xmp
 
     descriptor, tmp_name = tempfile.mkstemp(suffix=meta.path.suffix, dir=meta.path.parent)
     os.close(descriptor)
@@ -624,6 +640,7 @@ def verify_embedded_clear(path: str | Path) -> tuple[Metadata, list[str]]:
         for fields in (FIELDS, PDF_FIELDS, MARKDOWN_FIELDS, IMAGE_FIELDS, ZIP_FIELDS, MEDIA_FIELDS)
         for key, label in fields
     }
+    labels["_all_tags"] = "媒体容器、音视频流或章节标签"
     remaining = [
         labels.get(key, key)
         for key, value in result.values.items()
