@@ -164,7 +164,7 @@ def write_image(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
     image_api, _ = _load_pillow()
     with image_api.open(meta.path) as image:
         exif = image.getexif()
-        tags = {"title": 270, "author": 315, "description": 37510, "created": 36867}
+        tags = {"title": 270, "author": 315, "description": 37510, "created": 36867, "gps": 34853}
         for key, tag in tags.items():
             value = "" if clear else values.get(key, "").strip()
             if value: exif[tag] = value
@@ -206,6 +206,9 @@ def write_audio(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
     mutagen_file = _load_mutagen()
     audio = mutagen_file(meta.path, easy=True)
     if audio is None: raise ValueError("无法识别音频容器。")
+    if clear:
+        audio.delete()
+        return
     if audio.tags is None: audio.add_tags()
     mapping = {"title": "title", "author": "artist", "album": "album", "date": "date", "genre": "genre", "description": "comment"}
     for source, target in mapping.items():
@@ -604,6 +607,32 @@ def load(path: str) -> Metadata:
     if suffix in VIDEO_SUFFIXES: return read_video(item)
     raise ValueError("仅支持 Office、PDF 和 Markdown 文件。")
 
+
+
+def verify_embedded_clear(path: str | Path) -> tuple[Metadata, list[str]]:
+    """Re-read a file and report non-empty embedded properties after clearing.
+
+    Filesystem timestamps and structural values such as archive entry counts are
+    intentionally excluded; they are not embedded descriptive metadata.
+    """
+    result = load(str(path))
+    ignored = {"filesystem_created", "filesystem_modified", "file_count"}
+    labels = {
+        key: label
+        for fields in (FIELDS, PDF_FIELDS, MARKDOWN_FIELDS, IMAGE_FIELDS, ZIP_FIELDS, MEDIA_FIELDS)
+        for key, label in fields
+    }
+    remaining = [
+        labels.get(key, key)
+        for key, value in result.values.items()
+        if key not in ignored and str(value).strip()
+    ]
+    remaining.extend(
+        f"自定义属性：{name}"
+        for name, value in result.custom.items()
+        if str(value).strip()
+    )
+    return result, remaining
 
 def backup(path: Path) -> Path:
     # Never overwrite an earlier backup: network-sync folders and document apps
