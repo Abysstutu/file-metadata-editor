@@ -16,18 +16,31 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from pypdf import PdfReader, PdfWriter
-from pypdf.generic import DictionaryObject
-from pypdf.xmp import XmpInformation
-try:
-    from PIL import Image, ExifTags
-except ImportError:  # optional for source installations
-    Image = None
-    ExifTags = None
-try:
-    from mutagen import File as MutagenFile
-except ImportError:
-    MutagenFile = None
+Image = None
+ExifTags = None
+MutagenFile = None
+
+
+def _load_pillow():
+    global Image, ExifTags
+    if Image is None:
+        try:
+            from PIL import Image as pillow_image, ExifTags as pillow_exif_tags
+        except ImportError as exc:
+            raise RuntimeError("图片功能需要安装 Pillow。") from exc
+        Image, ExifTags = pillow_image, pillow_exif_tags
+    return Image, ExifTags
+
+
+def _load_mutagen():
+    global MutagenFile
+    if MutagenFile is None:
+        try:
+            from mutagen import File as mutagen_file
+        except ImportError as exc:
+            raise RuntimeError("音频功能需要安装 mutagen：python -m pip install mutagen") from exc
+        MutagenFile = mutagen_file
+    return MutagenFile
 
 CORE = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
 DC = "http://purl.org/dc/elements/1.1/"
@@ -139,19 +152,17 @@ def write_markdown(meta: Metadata, values: dict[str, str], clear: bool = False) 
 def read_image(path: Path) -> Metadata:
     result = Metadata(path, "Image")
     result.values.update(filesystem_values(path))
-    if Image is None:
-        raise RuntimeError("图片功能需要安装 Pillow。")
-    with Image.open(path) as image:
+    image_api, exif_tags = _load_pillow()
+    with image_api.open(path) as image:
         exif = image.getexif()
-        names = {ExifTags.TAGS.get(key, str(key)): value for key, value in exif.items()} if ExifTags else {}
+        names = {exif_tags.TAGS.get(key, str(key)): value for key, value in exif.items()} if exif_tags else {}
         result.values.update({"title": str(names.get("ImageDescription", "")), "author": str(names.get("Artist", "")), "description": str(names.get("XPComment", "")), "created": str(names.get("DateTimeOriginal", "")), "gps": str(names.get("GPSInfo", ""))})
     return result
 
 
 def write_image(meta: Metadata, values: dict[str, str], clear: bool = False) -> None:
-    if Image is None:
-        raise RuntimeError("图片功能需要安装 Pillow。")
-    with Image.open(meta.path) as image:
+    image_api, _ = _load_pillow()
+    with image_api.open(meta.path) as image:
         exif = image.getexif()
         tags = {"title": 270, "author": 315, "description": 37510, "created": 36867}
         for key, tag in tags.items():
@@ -181,10 +192,9 @@ def write_zip(meta: Metadata, values: dict[str, str], clear: bool = False) -> No
 
 
 def read_audio(path: Path) -> Metadata:
-    if MutagenFile is None:
-        raise RuntimeError("音频功能需要安装 mutagen：python -m pip install mutagen")
+    mutagen_file = _load_mutagen()
     result = Metadata(path, "Audio"); result.values.update(filesystem_values(path))
-    audio = MutagenFile(path, easy=True)
+    audio = mutagen_file(path, easy=True)
     if audio is not None:
         for key, target in {"title": "title", "artist": "author", "album": "album", "date": "date", "genre": "genre", "comment": "description"}.items():
             value = audio.get(key, [""])
@@ -193,9 +203,8 @@ def read_audio(path: Path) -> Metadata:
 
 
 def write_audio(meta: Metadata, values: dict[str, str], clear: bool = False) -> None:
-    if MutagenFile is None:
-        raise RuntimeError("音频功能需要安装 mutagen：python -m pip install mutagen")
-    audio = MutagenFile(meta.path, easy=True)
+    mutagen_file = _load_mutagen()
+    audio = mutagen_file(meta.path, easy=True)
     if audio is None: raise ValueError("无法识别音频容器。")
     if audio.tags is None: audio.add_tags()
     mapping = {"title": "title", "author": "artist", "album": "album", "date": "date", "genre": "genre", "description": "comment"}
@@ -393,6 +402,8 @@ def _pdf_escape(value: str) -> str:
 
 
 def read_pdf(path: Path) -> Metadata:
+    from pypdf import PdfReader
+
     reader = PdfReader(path)
     if reader.is_encrypted:
         raise ValueError("加密 PDF 不支持读取或写入。")
@@ -425,6 +436,10 @@ def _pdf_date(value: str) -> str:
 
 
 def write_pdf(meta: Metadata, values: dict[str, str], clear: bool) -> None:
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import DictionaryObject
+    from pypdf.xmp import XmpInformation
+
     # Rewriting a signed PDF invalidates its signature. Refuse it explicitly so
     # single-file and batch operations both report a safe, actionable result.
     if b"/ByteRange" in meta.path.read_bytes():
