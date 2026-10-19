@@ -164,7 +164,9 @@ def write_image(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
     image_api, _ = _load_pillow()
     with image_api.open(meta.path) as image:
         exif = image.getexif()
-        tags = {"title": 270, "author": 315, "description": 37510, "created": 36867, "gps": 34853}
+        tags = {"title": 270, "author": 315, "description": 37510, "created": 36867}
+        if clear and 34853 in exif:
+            del exif[34853]
         for key, tag in tags.items():
             value = "" if clear else values.get(key, "").strip()
             if value: exif[tag] = value
