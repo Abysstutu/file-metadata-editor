@@ -1,78 +1,66 @@
 # 文件源数据编辑
 
-本地 Windows 桌面工具，用于查看、修改或清除 Office、PDF 与 Markdown 元数据。文件处理在本机完成，不会上传到网络。
+本地 Windows 桌面工具，用于查看、修改或清除常见文件的嵌入元数据。文件处理在本机完成，不会把文件内容上传到网络。
+
+## 下载
+
+打开 [GitHub Releases](https://github.com/Abysstutu/file-metadata-editor/releases)，选择适合的版本并下载带版本号的 Windows x64 可执行文件：
+
+- **v3.x（推荐）**：新版功能与拖放清除，支持旧版 Office；应用运行组件随 EXE 提供。
+- **v2.0**：支持旧版 `.doc`、`.xls`、`.ppt`，内置 Java 运行时。
+- **v1.0**：仅支持新版 Office 格式与 PDF。
+
+文件名格式：`FileMetadataEditor-vX.Y-Windows-x64.exe`。下载后双击运行，无需单独安装 Python 或 Java。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
 
 ## 支持范围
 
-- Office Open XML：`.docx`、`.xlsx`、`.pptx`，以及常见宏与模板变体
-  - 核心属性、应用属性、自定义属性
-  - Windows 创建时间、修改时间
-- PDF：Info 与 XMP 元数据
-- Markdown：YAML Front Matter 元数据（`.md`、`.markdown` 等）
-- 图片：JPEG/TIFF/WebP 的常用 EXIF 字段
-- ZIP 压缩包：压缩包注释
-- 音频：`.mp3`、`.flac`、`.m4a`、`.wav` 的常用标签（需 Mutagen）
-- 视频：`.mp4`、`.mov`、`.mkv` 的常用标签（需 FFmpeg）
-- 旧版 Office：`.doc`、`.xls`、`.ppt` 的标准属性流（需配套 Java 兼容组件）
-- 批量清除嵌入属性
-- 支持拖放：单个文件拖到主窗口打开；多个文件拖到批量清除窗口加入队列
-- 保存前自动备份；文件只读或被占用时另存为可修改副本
+| 类型 | 扩展名 | 说明 |
+| --- | --- | --- |
+| Office Open XML | `.docx`、`.xlsx`、`.pptx` 及常见宏/模板变体 | 核心、应用、自定义属性和文件系统时间 |
+| 旧版 Office | `.doc`、`.xls`、`.ppt` | 通过 Apache POI 修改标准属性流，不转换文档内容；EXE 内置 Java 运行时 |
+| PDF | `.pdf` | Info 与 XMP 元数据 |
+| Markdown | `.md`、`.markdown` 等 | YAML Front Matter |
+| 图片 | JPEG、TIFF、WebP | 常用 EXIF 字段 |
+| 音频 | `.mp3`、`.flac`、`.m4a`、`.wav` | 常用标签 |
+| 视频 | `.mp4`、`.mov`、`.mkv` | 需系统可用的 FFmpeg |
+| ZIP | `.zip` | 压缩包注释 |
 
-旧版 Office 兼容层仅修改 OLE 标准属性流，不转换或重新排版文档内容；加密、损坏或受数字签名保护的旧文件会拒绝处理。
+支持单文件编辑、批量清除、拖放、保存前备份，以及文件只读或占用时另存为可写副本。清除和修改操作会改变文件，请先备份重要文件。
 
-## 使用方式
+## 限制与故障处理
 
-### 直接运行 Windows 版
+- 加密 PDF 不支持修改；检测到数字签名的 PDF 会拒绝修改，避免破坏签名。
+- 旧版 Office 加密、损坏或受数字签名保护的文件会拒绝处理。
+- 只读或被 Office/WPS、同步软件占用时，程序可能无法覆盖原件；请关闭占用程序，或使用自动生成的可写副本。
+- 视频属性编辑需要安装 FFmpeg 并确保 `ffmpeg` 可从命令行访问。其他格式和功能不依赖 FFmpeg。
+- 修改后可重新打开文件检查属性；不同软件可能缓存属性，关闭后重开或复制到本地目录再确认。
 
-从发布包中运行 `文件源数据编辑.exe`，无需安装 Python。处理 `.docx`、`.xlsx`、`.pptx` 与 PDF 时也无需 Java。
+## 从源码运行
 
-新版 EXE 已内置旧版 Office 所需的 Java 运行时与 POI 兼容组件，处理 `.doc`、`.xls`、`.ppt` 无需另外安装 Java、Maven 或下载 JAR。
-
-建议从 GitHub Releases 下载最新的 `文件源数据编辑.exe`。仓库中的 `outputs/` 仅用于本地构建，不属于源码提交内容。
-
-### 从源码运行
+需要 Python 3.10+。旧版 Office 文件还需 Java 11+。
 
 ```powershell
 python -m pip install -r requirements.txt
 python app.py
 ```
 
-从源码运行时，处理 `.doc`、`.xls`、`.ppt` 还需要 Java 11+ 与 `legacy_helper/legacy-metadata-helper.jar`。该辅助程序的源码和构建说明位于 `legacy_helper/`。
+## 自动构建
 
-## 功能说明
-
-### 单文件编辑
-
-选择一个文件后可查看与修改常用属性，点击“保存修改”写入。选择“清除嵌入属性”会清空文档内嵌属性与自定义属性，但不会修改 Windows 文件系统时间。
-
-### 批量清除
-
-点击“批量清除”后，可点击“添加文件”或将多个文件直接拖入窗口。程序会逐项显示成功或失败原因；单个文件失败不会中断其余任务。
-
-### 备份、只读与占用
-
-- 备份采用带时间戳的文件名，并保留原扩展名，能够直接打开。
-- 无法直接覆盖的文件会提示另存副本；批量清除会自动生成名称含“已清除属性”的副本。
-- 自动创建的备份与副本会移除只读属性，然后继续处理。
-
-## PDF 限制
-
-- 加密 PDF 不支持修改。
-- 检测到数字签名的 PDF 会拒绝修改，避免签名失效。
-- PDF 保存会重写元数据。建议保留“保存前备份”。
+向 GitHub 发布 `v*` 标签对应的 Release 后，GitHub Actions 会在 Windows x64 runner 上运行代码检查、打包独立 EXE、启动冒烟测试，并将带版本号的 EXE 附加到该 Release。构建过程从仓库的 `legacy_helper/legacy-metadata-helper.jar` 与 Temurin Java 17 生成随程序携带的精简运行时，不要求下载文件的用户安装 Java。
 
 ## 项目结构
 
 ```text
 app.py                 程序入口与 Windows 高 DPI 配置
 metadata_editor/       元数据读写与 Tkinter 界面
-legacy_helper/          Apache POI 旧版 Office 属性兼容组件
+legacy_helper/         Apache POI 旧版 Office 属性兼容组件
 requirements.txt       源码运行依赖
 run.cmd                Windows 快捷启动脚本
 high-dpi.manifest      Windows 高 DPI 清单
+.github/workflows/     自动检查、打包与 Release 上传
 ```
 
-仓库不保存历史 ZIP 源码包；源码以 Git 历史维护，用户使用 Release 中的 EXE。
+仓库不保存构建输出或源码 ZIP；源码以 Git 历史维护，可执行文件发布在 Releases。
 
 ## 许可
 
