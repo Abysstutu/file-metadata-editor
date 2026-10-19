@@ -4,13 +4,18 @@
 
 ## 下载
 
-打开 [GitHub Releases](https://github.com/Abysstutu/file-metadata-editor/releases)，选择适合的版本并下载带版本号的 Windows x64 可执行文件：
+打开 [GitHub Releases](https://github.com/Abysstutu/file-metadata-editor/releases)，选择适合的 Windows x64 包：
 
 - **v3.x（推荐）**：新版功能与拖放清除，支持旧版 Office；应用运行组件随 EXE 提供。
 - **v2.0**：支持旧版 `.doc`、`.xls`、`.ppt`，内置 Java 运行时。
 - **v1.0**：仅支持新版 Office 格式与 PDF。
 
-文件名格式：`FileMetadataEditor-vX.Y-Windows-x64.exe`。下载后双击运行，无需单独安装 Python 或 Java。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
+新版本会同时提供两个构建：
+
+- `FileMetadataEditor-vX.Y-Windows-x64.exe`：单文件便携版，下载后可直接运行，但首次启动需要解包，启动速度较慢。
+- `FileMetadataEditor-vX.Y-Windows-x64-FastStart.zip`：快速启动版，解压后运行文件夹中的 EXE；不要单独移动 EXE，需保留同目录运行组件。
+
+两种版本均无需单独安装 Python 或 Java。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
 
 ## 支持范围
 
@@ -46,7 +51,7 @@ python app.py
 
 ## 自动构建
 
-向 GitHub 发布 `v*` 标签对应的 Release 后，GitHub Actions 会在 Windows x64 runner 上运行代码检查、打包独立 EXE、启动冒烟测试，并将带版本号的 EXE 附加到该 Release。构建过程从仓库的 `legacy_helper/legacy-metadata-helper.jar` 与 Temurin Java 17 生成随程序携带的精简运行时，不要求下载文件的用户安装 Java。
+向 GitHub 发布 Release 后，GitHub Actions 会在 Windows x64 runner 上运行代码检查、按旧版 Office 辅助程序的依赖生成精简 Java 运行时，并分别构建单文件 EXE 和快速启动便携 ZIP；两种启动方式都会进行冒烟测试，随后上传到该 Release。运行时随程序提供，不要求下载文件的用户安装 Java。
 
 ## 项目结构
 
