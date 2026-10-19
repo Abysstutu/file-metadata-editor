@@ -72,14 +72,14 @@ jobs:
       - name: Package faster-start portable folder
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "文件源数据编辑" --manifest high-dpi.manifest --add-data "legacy_helper/legacy-metadata-helper.jar;legacy_helper" --add-data "_build_runtime/runtime;runtime" --collect-all tkinterdnd2 --collect-all pypdf --collect-all PIL --collect-all mutagen app.py
-          $folderExe = "dist/文件源数据编辑/文件源数据编辑.exe"
+          pyinstaller --noconfirm --onedir --windowed --workpath build/faststart --distpath dist/faststart --name "文件源数据编辑" --manifest high-dpi.manifest --add-data "legacy_helper/legacy-metadata-helper.jar;legacy_helper" --add-data "_build_runtime/runtime;runtime" --collect-all tkinterdnd2 --collect-all pypdf --collect-all PIL --collect-all mutagen app.py
+          $folderExe = "dist/faststart/文件源数据编辑/文件源数据编辑.exe"
           if (-not (Test-Path $folderExe)) {
             throw "Portable folder executable is missing."
           }
           $tag = "${{ github.event.release.tag_name || inputs.release_tag }}"
           $fastAsset = "dist/FileMetadataEditor-$tag-Windows-x64-FastStart.zip"
-          Compress-Archive -Path "dist/文件源数据编辑/*" -DestinationPath $fastAsset -CompressionLevel Fastest
+          Compress-Archive -Path "dist/faststart/文件源数据编辑/*" -DestinationPath $fastAsset -CompressionLevel Fastest
           if (-not (Test-Path $fastAsset)) {
             throw "Fast-start portable archive is missing."
           }
@@ -99,7 +99,7 @@ jobs:
           Stop-Process -Id $onefile.Id -Force
 
           $folderWatch = [System.Diagnostics.Stopwatch]::StartNew()
-          $folder = Start-Process -FilePath "dist/文件源数据编辑/文件源数据编辑.exe" -PassThru
+          $folder = Start-Process -FilePath "dist/faststart/文件源数据编辑/文件源数据编辑.exe" -PassThru
           Start-Sleep -Seconds 5
           $folder.Refresh()
           if ($folder.HasExited) {
