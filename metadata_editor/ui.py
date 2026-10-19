@@ -334,7 +334,7 @@ class Editor(_TkBase):
         table.heading("status", text="状态")
         table.heading("detail", text="结果 / 原因")
         table.column("file", width=420, minwidth=250)
-        table.column("status", width=90, anchor="center", stretch=False)
+        table.column("status", width=110, anchor="center", stretch=False)
         table.column("detail", width=320, minwidth=180)
         scrollbar = ttk.Scrollbar(frame, orient="vertical", command=table.yview)
         table.configure(yscrollcommand=scrollbar.set)
@@ -462,9 +462,13 @@ class Editor(_TkBase):
                     failed += 1
                     table.item(rows[path], values=(path, "失败", str(exc)))
                 dialog.update_idletasks()
-            progress.configure(text=f"处理完成：成功 {succeeded}，失败 {failed}")
+            progress.configure(text=f"完成：验证通过 {succeeded}，验证未通过 {verification_failed}，处理失败 {failed}")
             close_button.configure(state="normal")
-            messagebox.showinfo("批量清除完成", f"成功：{succeeded}\n失败：{failed}\n详细结果见列表。", parent=dialog)
+            messagebox.showinfo(
+                "批量清除完成",
+                f"验证通过：{succeeded}\n验证未通过：{verification_failed}\n处理失败：{failed}\n详细结果见列表。",
+                parent=dialog,
+            )
 
         start_button.configure(command=start)
 
