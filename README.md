@@ -51,7 +51,7 @@ python app.py
 
 ## 自动构建
 
-向 GitHub 发布 Release 后，GitHub Actions 会在 Windows x64 runner 上运行代码检查、按旧版 Office 辅助程序的依赖生成精简 Java 运行时，并分别构建单文件 EXE 和快速启动便携 ZIP；两种启动方式都会进行冒烟测试，随后上传到该 Release。运行时随程序提供，不要求下载文件的用户安装 Java。
+推送形如 `v3.1` 的版本标签后，GitHub Actions 会自动在 Windows x64 runner 上检查代码、生成精简 Java 运行时、构建并冒烟测试单文件 EXE 与快速启动 ZIP，然后创建对应的 GitHub Release 并附上两个下载包。也可以手动发布已有 Release，工作流会构建并上传附件；手动触发构建则只保存为 14 天有效的 Actions 构建产物。运行时随程序提供，下载用户无需单独安装 Java。
 
 ## 项目结构
 
