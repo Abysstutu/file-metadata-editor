@@ -43,17 +43,20 @@ jobs:
       - name: Check Python sources
         run: python -m compileall -q app.py metadata_editor
 
-      - name: Build bundled Java runtime
+      - name: Build a dependency-sized Java runtime
         shell: pwsh
         run: |
-          $requiredModules = @("java.base", "java.desktop", "java.logging", "java.xml", "java.naming", "java.management", "jdk.unsupported")
-          $modules = ($requiredModules | Sort-Object -Unique) -join ","
+          $modules = (& jdeps --multi-release 17 --print-module-deps --ignore-missing-deps legacy_helper/legacy-metadata-helper.jar).Trim()
+          if (-not $modules) {
+            throw "Could not determine the Java modules required by the legacy Office helper."
+          }
+          Write-Host "Bundling Java modules: $modules"
           jlink --add-modules $modules --strip-debug --no-man-pages --no-header-files --compress=2 --output _build_runtime/runtime
           if (-not (Test-Path "_build_runtime/runtime/bin/java.exe")) {
             throw "Bundled Java runtime was not created."
           }
 
-      - name: Package standalone Windows application
+      - name: Package compact single-file executable
         shell: pwsh
         run: |
           pyinstaller --noconfirm --clean --onefile --windowed --name "文件源数据编辑" --manifest high-dpi.manifest --add-data "legacy_helper/legacy-metadata-helper.jar;legacy_helper" --add-data "_build_runtime/runtime;runtime" --collect-all tkinterdnd2 --collect-all pypdf --collect-all PIL --collect-all mutagen app.py
@@ -66,18 +69,46 @@ jobs:
           "RELEASE_ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Smoke-test packaged application startup
+      - name: Package faster-start portable folder
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath "$env:RELEASE_ASSET" -PassThru
-          Start-Sleep -Seconds 15
-          $process.Refresh()
-          if ($process.HasExited) {
-            throw "The packaged application exited during startup."
+          pyinstaller --noconfirm --onedir --windowed --name "文件源数据编辑" --manifest high-dpi.manifest --add-data "legacy_helper/legacy-metadata-helper.jar;legacy_helper" --add-data "_build_runtime/runtime;runtime" --collect-all tkinterdnd2 --collect-all pypdf --collect-all PIL --collect-all mutagen app.py
+          $folderExe = "dist/文件源数据编辑/文件源数据编辑.exe"
+          if (-not (Test-Path $folderExe)) {
+            throw "Portable folder executable is missing."
           }
-          Stop-Process -Id $process.Id -Force
+          $tag = "${{ github.event.release.tag_name || inputs.release_tag }}"
+          $fastAsset = "dist/FileMetadataEditor-$tag-Windows-x64-FastStart.zip"
+          Compress-Archive -Path "dist/文件源数据编辑/*" -DestinationPath $fastAsset -CompressionLevel Fastest
+          if (-not (Test-Path $fastAsset)) {
+            throw "Fast-start portable archive is missing."
+          }
+          "FAST_ASSET=$fastAsset" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Upload executable to the release
+      - name: Smoke-test both packaged launch modes
+        shell: pwsh
+        run: |
+          $onefileWatch = [System.Diagnostics.Stopwatch]::StartNew()
+          $onefile = Start-Process -FilePath "$env:RELEASE_ASSET" -PassThru
+          Start-Sleep -Seconds 15
+          $onefile.Refresh()
+          if ($onefile.HasExited) {
+            throw "The single-file application exited during startup."
+          }
+          Write-Host "Single-file process survived startup check in $($onefileWatch.Elapsed.TotalSeconds) seconds."
+          Stop-Process -Id $onefile.Id -Force
+
+          $folderWatch = [System.Diagnostics.Stopwatch]::StartNew()
+          $folder = Start-Process -FilePath "dist/文件源数据编辑/文件源数据编辑.exe" -PassThru
+          Start-Sleep -Seconds 5
+          $folder.Refresh()
+          if ($folder.HasExited) {
+            throw "The fast-start portable-folder application exited during startup."
+          }
+          Write-Host "Portable-folder process survived startup check in $($folderWatch.Elapsed.TotalSeconds) seconds."
+          Stop-Process -Id $folder.Id -Force
+
+      - name: Upload both choices to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$env:RELEASE_TAG" "$env:RELEASE_ASSET" --repo "$env:GITHUB_REPOSITORY" --clobber
+        run: gh release upload "$env:RELEASE_TAG" "$env:RELEASE_ASSET" "$env:FAST_ASSET" --repo "$env:GITHUB_REPOSITORY" --clobber
