@@ -1,6 +1,9 @@
 name: Build and publish Windows release
 
 on:
+  push:
+    tags:
+      - 'v*'
   release:
     types: [published]
   workflow_dispatch:
@@ -21,7 +24,7 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.build_ref }}
+          ref: ${{ github.event.release.tag_name || inputs.build_ref || github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -61,7 +64,7 @@ jobs:
         shell: pwsh
         run: |
           pyinstaller --noconfirm --clean --onefile --windowed --name "文件源数据编辑" --manifest high-dpi.manifest --add-data "legacy_helper/legacy-metadata-helper.jar;legacy_helper" --add-data "_build_runtime/runtime;runtime" --collect-all tkinterdnd2 --collect-all pypdf --collect-all PIL --collect-all mutagen app.py
-          $tag = "${{ github.event.release.tag_name || inputs.build_ref }}"
+          $tag = "${{ github.event.release.tag_name || inputs.build_ref || github.ref_name }}"
           $asset = "dist/FileMetadataEditor-$tag-Windows-x64.exe"
           Move-Item "dist/文件源数据编辑.exe" $asset
           if (-not (Test-Path $asset)) {
@@ -78,7 +81,7 @@ jobs:
           if (-not (Test-Path $folderExe)) {
             throw "Portable folder executable is missing."
           }
-          $tag = "${{ github.event.release.tag_name || inputs.release_tag }}"
+          $tag = "${{ github.event.release.tag_name || inputs.build_ref || github.ref_name }}"
           $fastAsset = "dist/FileMetadataEditor-$tag-Windows-x64-FastStart.zip"
           Compress-Archive -Path "dist/faststart/文件源数据编辑/*" -DestinationPath $fastAsset -CompressionLevel Fastest
           if (-not (Test-Path $fastAsset)) {
@@ -109,11 +112,22 @@ jobs:
           Write-Host "Portable-folder process survived startup check in $($folderWatch.Elapsed.TotalSeconds) seconds."
           Stop-Process -Id $folder.Id -Force
 
-      - name: Upload assets to the GitHub Release
-        if: github.event_name == 'release'
+      - name: Create or update the GitHub Release
+        if: github.event_name == 'push' || github.event_name == 'release'
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$env:RELEASE_TAG" "$env:RELEASE_ASSET" "$env:FAST_ASSET" --repo "$env:GITHUB_REPOSITORY" --clobber
+        run: |
+          $tag = "$env:RELEASE_TAG"
+          $null = gh release view "$tag" --repo "$env:GITHUB_REPOSITORY" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload "$tag" "$env:RELEASE_ASSET" "$env:FAST_ASSET" --repo "$env:GITHUB_REPOSITORY" --clobber
+          } else {
+            gh release create "$tag" "$env:RELEASE_ASSET" "$env:FAST_ASSET" --repo "$env:GITHUB_REPOSITORY" --title "$tag" --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not create or update release $tag."
+          }
 
       - name: Save manual build outputs as workflow artifacts
         if: github.event_name == 'workflow_dispatch'
