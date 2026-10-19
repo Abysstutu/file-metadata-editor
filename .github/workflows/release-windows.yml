@@ -1,0 +1,83 @@
+name: Build and publish Windows release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub Release tag to build and upload
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Set up Java runtime builder
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install application and packaging dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Check Python sources
+        run: python -m compileall -q app.py metadata_editor
+
+      - name: Build bundled Java runtime
+        shell: pwsh
+        run: |
+          $requiredModules = @("java.base", "java.desktop", "java.logging", "java.xml", "java.naming", "java.management", "jdk.unsupported")
+          $modules = ($requiredModules | Sort-Object -Unique) -join ","
+          jlink --add-modules $modules --strip-debug --no-man-pages --no-header-files --compress=2 --output _build_runtime/runtime
+          if (-not (Test-Path "_build_runtime/runtime/bin/java.exe")) {
+            throw "Bundled Java runtime was not created."
+          }
+
+      - name: Package standalone Windows application
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name "文件源数据编辑" --manifest high-dpi.manifest --add-data "legacy_helper/legacy-metadata-helper.jar;legacy_helper" --add-data "_build_runtime/runtime;runtime" --collect-all tkinterdnd2 --collect-all pypdf --collect-all PIL --collect-all mutagen app.py
+          $tag = "${{ github.event.release.tag_name || inputs.release_tag }}"
+          $asset = "dist/FileMetadataEditor-$tag-Windows-x64.exe"
+          Move-Item "dist/文件源数据编辑.exe" $asset
+          if (-not (Test-Path $asset)) {
+            throw "Packaged executable is missing: $asset"
+          }
+          "RELEASE_ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Smoke-test packaged application startup
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath "$env:RELEASE_ASSET" -PassThru
+          Start-Sleep -Seconds 15
+          $process.Refresh()
+          if ($process.HasExited) {
+            throw "The packaged application exited during startup."
+          }
+          Stop-Process -Id $process.Id -Force
+
+      - name: Upload executable to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$env:RELEASE_TAG" "$env:RELEASE_ASSET" --repo "$env:GITHUB_REPOSITORY" --clobber
