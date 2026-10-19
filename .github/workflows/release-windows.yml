@@ -5,9 +5,10 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: Existing GitHub Release tag to build and upload
+      build_ref:
+        description: Branch, tag, or commit to build for this manual run
         required: true
+        default: main
         type: string
 
 permissions:
@@ -20,7 +21,7 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.release_tag }}
+          ref: ${{ github.event.release.tag_name || inputs.build_ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -60,7 +61,7 @@ jobs:
         shell: pwsh
         run: |
           pyinstaller --noconfirm --clean --onefile --windowed --name "文件源数据编辑" --manifest high-dpi.manifest --add-data "legacy_helper/legacy-metadata-helper.jar;legacy_helper" --add-data "_build_runtime/runtime;runtime" --collect-all tkinterdnd2 --collect-all pypdf --collect-all PIL --collect-all mutagen app.py
-          $tag = "${{ github.event.release.tag_name || inputs.release_tag }}"
+          $tag = "${{ github.event.release.tag_name || inputs.build_ref }}"
           $asset = "dist/FileMetadataEditor-$tag-Windows-x64.exe"
           Move-Item "dist/文件源数据编辑.exe" $asset
           if (-not (Test-Path $asset)) {
@@ -108,7 +109,19 @@ jobs:
           Write-Host "Portable-folder process survived startup check in $($folderWatch.Elapsed.TotalSeconds) seconds."
           Stop-Process -Id $folder.Id -Force
 
-      - name: Upload both choices to the release
+      - name: Upload assets to the GitHub Release
+        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$env:RELEASE_TAG" "$env:RELEASE_ASSET" "$env:FAST_ASSET" --repo "$env:GITHUB_REPOSITORY" --clobber
+
+      - name: Save manual build outputs as workflow artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: FileMetadataEditor-${{ inputs.build_ref }}-Windows-x64
+          path: |
+            ${{ env.RELEASE_ASSET }}
+            ${{ env.FAST_ASSET }}
+          if-no-files-found: error
+          retention-days: 14
