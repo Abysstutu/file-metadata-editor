@@ -4,7 +4,7 @@ import shutil
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from .engine import AUDIO_SUFFIXES, FIELDS, IMAGE_FIELDS, LEGACY_SUFFIXES, MARKDOWN_FIELDS, MARKDOWN_SUFFIXES, MEDIA_FIELDS, OFFICE_SUFFIXES, PDF_FIELDS, VIDEO_SUFFIXES, ZIP_FIELDS, ZIP_SUFFIXES, IMAGE_SUFFIXES, Metadata, backup, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, suggested_copy_path, write_audio, write_image, write_legacy, write_markdown, write_office, write_pdf, write_video, write_zip
+from .engine import AUDIO_SUFFIXES, FIELDS, IMAGE_FIELDS, LEGACY_SUFFIXES, MARKDOWN_FIELDS, MARKDOWN_SUFFIXES, MEDIA_FIELDS, OFFICE_SUFFIXES, PDF_FIELDS, VIDEO_SUFFIXES, ZIP_FIELDS, ZIP_SUFFIXES, IMAGE_SUFFIXES, Metadata, backup, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, suggested_copy_path, verify_embedded_clear, write_audio, write_image, write_legacy, write_markdown, write_office, write_pdf, write_video, write_zip
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -285,8 +285,32 @@ class Editor(_TkBase):
                 if copy is None: return
                 meta, is_copy = copy, True
                 clear_embedded_properties(meta)
-            self.open(str(meta.path))
-            self.status.configure(text="已另存为副本并清除属性。" if is_copy else "嵌入属性已清除。")
+            try:
+                verified, remaining = verify_embedded_clear(meta.path)
+            except Exception as verify_error:
+                self.status.configure(text="清除已执行，但重新读取验证失败")
+                messagebox.showwarning(
+                    "清除后无法验证",
+                    f"清除操作已执行，但程序无法重新读取文件确认结果：\\n{verify_error}",
+                    parent=self,
+                )
+                return
+            self.meta = verified
+            self.path_var.set(str(meta.path))
+            self._render()
+            if remaining:
+                self.status.configure(text=f"清除验证未通过：仍检测到 {len(remaining)} 项")
+                messagebox.showwarning(
+                    "清除验证未通过",
+                    "重新读取后仍检测到以下嵌入属性：\\n\\n"
+                    + "\\n".join(remaining[:20])
+                    + ("\\n……" if len(remaining) > 20 else ""),
+                    parent=self,
+                )
+            else:
+                self.status.configure(
+                    text="已另存为副本并清除、验证通过。" if is_copy else "嵌入属性已清除并重新读取验证通过。"
+                )
         except Exception as e: messagebox.showerror("清除失败", str(e))
 
     def batch_clear(self):
@@ -385,7 +409,7 @@ class Editor(_TkBase):
                 return
             start_button.configure(state="disabled")
             close_button.configure(state="disabled")
-            succeeded = failed = 0
+            succeeded = failed = verification_failed = 0
             for index, path in enumerate(paths, start=1):
                 table.item(rows[path], values=(path, "处理中", ""))
                 progress.configure(text=f"正在处理 {index} / {len(paths)}")
@@ -412,9 +436,28 @@ class Editor(_TkBase):
                         meta = load(str(copy_path))
                         clear_embedded_properties(meta)
                         is_copy = True
-                    succeeded += 1
-                    detail = f"已另存为：{meta.path.name}" if is_copy else "属性已清除"
-                    table.item(rows[path], values=(path, "成功", detail))
+                    detail = f"已另存为：{meta.path.name}；" if is_copy else ""
+                    try:
+                        _, remaining = verify_embedded_clear(meta.path)
+                    except Exception as verify_error:
+                        verification_failed += 1
+                        table.item(
+                            rows[path],
+                            values=(path, "无法验证", f"清除已执行，但重新读取失败：{verify_error}"),
+                        )
+                    else:
+                        if remaining:
+                            verification_failed += 1
+                            table.item(
+                                rows[path],
+                                values=(path, "验证未通过", detail + "残留：" + "、".join(remaining[:8])),
+                            )
+                        else:
+                            succeeded += 1
+                            table.item(
+                                rows[path],
+                                values=(path, "成功", detail + "清除后重新读取验证通过"),
+                            )
                 except Exception as exc:
                     failed += 1
                     table.item(rows[path], values=(path, "失败", str(exc)))
