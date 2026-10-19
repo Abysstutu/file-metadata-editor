@@ -157,6 +157,13 @@ def read_image(path: Path) -> Metadata:
         exif = image.getexif()
         names = {exif_tags.TAGS.get(key, str(key)): value for key, value in exif.items()} if exif_tags else {}
         result.values.update({"title": str(names.get("ImageDescription", "")), "author": str(names.get("Artist", "")), "description": str(names.get("XPComment", "")), "created": str(names.get("DateTimeOriginal", "")), "gps": str(names.get("GPSInfo", ""))})
+        result.values["_all_exif"] = "\\n".join(
+            f"{exif_tags.TAGS.get(key, key) if exif_tags else key}: {value}"
+            for key, value in exif.items()
+            if str(value).strip()
+        )
+        extra_metadata = [key for key in ("xmp", "photoshop", "iptc", "comment") if image.info.get(key)]
+        result.values["_extra_image_metadata"] = ", ".join(extra_metadata)
     return result
 
 
@@ -203,6 +210,11 @@ def read_audio(path: Path) -> Metadata:
         for key, target in {"title": "title", "artist": "author", "album": "album", "date": "date", "genre": "genre", "comment": "description"}.items():
             value = audio.get(key, [""])
             result.values[target] = str(value[0]) if value else ""
+        result.values["_all_tags"] = "\\n".join(
+            f"{key}: {value}"
+            for key, value in (audio.tags or {}).items()
+            if str(value).strip()
+        )
     return result
 
 
@@ -640,7 +652,9 @@ def verify_embedded_clear(path: str | Path) -> tuple[Metadata, list[str]]:
         for fields in (FIELDS, PDF_FIELDS, MARKDOWN_FIELDS, IMAGE_FIELDS, ZIP_FIELDS, MEDIA_FIELDS)
         for key, label in fields
     }
-    labels["_all_tags"] = "媒体容器、音视频流或章节标签"
+    labels["_all_tags"] = "音频/视频容器、流、章节或标签"
+    labels["_all_exif"] = "其他 EXIF 属性"
+    labels["_extra_image_metadata"] = "图片 XMP/IPTC/注释"
     remaining = [
         labels.get(key, key)
         for key, value in result.values.items()
