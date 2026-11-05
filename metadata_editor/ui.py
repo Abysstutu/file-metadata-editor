@@ -4,6 +4,7 @@ import shutil
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from .operations import CATEGORIES, changed_values, editable_fields, selected_fields, write_selected
 from .engine import AUDIO_SUFFIXES, FIELDS, IMAGE_FIELDS, LEGACY_SUFFIXES, MARKDOWN_FIELDS, MARKDOWN_SUFFIXES, MEDIA_FIELDS, OFFICE_SUFFIXES, PDF_FIELDS, VIDEO_SUFFIXES, ZIP_FIELDS, ZIP_SUFFIXES, IMAGE_SUFFIXES, Metadata, backup, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, suggested_copy_path, verify_embedded_clear, write_audio, write_image, write_legacy, write_markdown, write_office, write_pdf, write_video, write_zip
 
 try:
@@ -58,8 +59,8 @@ class Editor(_TkBase):
         ttk.Label(chooser, text="文件", width=6).pack(side="left")
         ttk.Entry(chooser, textvariable=self.path_var).pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(chooser, text="选择文件", command=self.choose).pack(side="left")
-        ttk.Button(chooser, text="批量清除", command=self.batch_clear).pack(side="left", padx=(8, 0))
-        self.drop_hint = ttk.Label(outer, text="也可以将单个文件拖到此窗口打开；多个文件请拖入“批量清除”窗口。", style="Muted.TLabel")
+        ttk.Button(chooser, text="批量处理", command=self.batch_clear).pack(side="left", padx=(8, 0))
+        self.drop_hint = ttk.Label(outer, text="也可以将单个文件拖到此窗口打开；多个文件请拖入“批量处理”窗口。", style="Muted.TLabel")
         self.drop_hint.pack(anchor="w", pady=(0, 8))
         body = ttk.Panedwindow(outer, orient="horizontal")
         left = ttk.Labelframe(body, text=" 文件信息 ", style="Card.TLabelframe", padding=8)
@@ -271,7 +272,13 @@ class Editor(_TkBase):
 
     def clear(self):
         if not self.meta: return
-        if not messagebox.askyesno("确认清除", "将清空文档内嵌属性和自定义属性；不会更改 Windows 文件系统时间。是否继续？"): return
+        before = self.meta
+        preview = [(before.path.name, label, before.values.get(key, ""), "清除")
+                   for key, label in editable_fields(before) if before.values.get(key, "")]
+        preview += [(before.path.name, f"自定义：{key}", value, "清除") for key, value in before.custom.items()]
+        preview += [(before.path.name, "其他嵌入属性", before.values[key], "清除")
+                    for key in ("_all_exif", "_all_tags", "_extra_image_metadata") if before.values.get(key)]
+        if not self._property_table("清除前预览", preview, confirm=True): return
         try:
             target = self._target_for_write("清除属性", "已清除属性")
             if target is None: return
@@ -298,6 +305,8 @@ class Editor(_TkBase):
             self.meta = verified
             self.path_var.set(str(meta.path))
             self._render()
+            changes = changed_values(before, verified, {key for key, _ in editable_fields(before)} | {"__custom__", "__all__"})
+            self._property_table("清除后对照", [(meta.path.name, *row) for row in changes])
             if remaining:
                 self.status.configure(text=f"清除验证未通过：仍检测到 {len(remaining)} 项")
                 messagebox.showwarning(
@@ -313,22 +322,80 @@ class Editor(_TkBase):
                 )
         except Exception as e: messagebox.showerror("清除失败", str(e))
 
+    def _property_table(self, title, rows, confirm=False, parent=None):
+        """Show planned or verified changes to embedded properties."""
+        owner = parent or self
+        window = tk.Toplevel(owner)
+        window.title(title)
+        window.transient(owner)
+        window.geometry("900x460")
+        window.grab_set()
+        container = ttk.Frame(window, padding=12)
+        container.pack(fill="both", expand=True)
+        ttk.Label(container, text=title, style="Title.TLabel").pack(anchor="w")
+        ttk.Label(container, text="仅显示程序支持的嵌入属性；Windows 文件时间不在此范围内。", style="Muted.TLabel").pack(anchor="w", pady=(2, 8))
+        table = ttk.Treeview(container, columns=("file", "field", "before", "after"), show="headings")
+        for key, label, width in (("file", "文件", 180), ("field", "属性", 150), ("before", "原值", 270), ("after", "处理后 / 计划", 220)):
+            table.heading(key, text=label)
+            table.column(key, width=width)
+        for row in rows:
+            table.insert("", "end", values=row)
+        if not rows:
+            table.insert("", "end", values=("", "无可显示属性", "", ""))
+        bar = ttk.Scrollbar(container, orient="vertical", command=table.yview)
+        table.configure(yscrollcommand=bar.set)
+        table.pack(side="left", fill="both", expand=True)
+        bar.pack(side="left", fill="y")
+        actions = ttk.Frame(window, padding=(12, 0, 12, 12))
+        actions.pack(fill="x")
+        accepted = tk.BooleanVar(value=False)
+        if confirm:
+            ttk.Button(actions, text="确认执行", style="Accent.TButton", command=lambda: (accepted.set(True), window.destroy())).pack(side="right")
+            ttk.Button(actions, text="取消", command=window.destroy).pack(side="right", padx=8)
+        else:
+            ttk.Button(actions, text="关闭", command=window.destroy).pack(side="right")
+        owner.wait_window(window)
+        if parent and owner.winfo_exists():
+            owner.grab_set()
+        return accepted.get() if confirm else None
+
     def batch_clear(self):
         self._show_batch_dialog([])
 
     def _show_batch_dialog(self, paths: list[str]):
         initial_paths = list(paths)
         dialog = tk.Toplevel(self)
-        dialog.title("批量清除嵌入属性")
+        dialog.title("批量处理属性")
         dialog.transient(self)
         dialog.grab_set()
         dialog.minsize(760, 430)
         dialog.geometry("900x560")
         frame = ttk.Frame(dialog, padding=16)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="批量清除嵌入属性", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(frame, text="批量处理属性", style="Title.TLabel").pack(anchor="w")
         hint = ttk.Label(frame, text="将文件拖到此窗口，或点击“添加文件”。支持一次加入多个文件。", style="Muted.TLabel")
         hint.pack(anchor="w", pady=(3, 12))
+        options = ttk.Frame(frame)
+        options.pack(fill="x", pady=(0, 8))
+        mode = tk.StringVar(value="all")
+        for label, value in (("清除全部", "all"), ("按类别清除", "selected"), ("批量修改", "modify")):
+            ttk.Radiobutton(options, text=label, variable=mode, value=value).pack(side="left", padx=(0, 14))
+        category_bar = ttk.Frame(frame)
+        category_bar.pack(fill="x", pady=(0, 8))
+        ttk.Label(category_bar, text="清除类别：").pack(side="left")
+        categories = {name: tk.BooleanVar(value=True) for name in CATEGORIES}
+        for name, variable in categories.items():
+            ttk.Checkbutton(category_bar, text=name, variable=variable).pack(side="left", padx=(0, 10))
+        edit_bar = ttk.Frame(frame)
+        edit_bar.pack(fill="x", pady=(0, 8))
+        edit_fields = {}
+        for label, key in (("标题", "title"), ("作者", "author"), ("关键词", "keywords")):
+            enabled, value = tk.BooleanVar(value=False), tk.StringVar()
+            ttk.Checkbutton(edit_bar, text=label, variable=enabled).pack(side="left")
+            ttk.Entry(edit_bar, textvariable=value, width=16).pack(side="left", padx=(0, 8))
+            edit_fields[key] = (enabled, value)
+        filename_title = tk.BooleanVar(value=False)
+        ttk.Checkbutton(edit_bar, text="标题取文件名", variable=filename_title).pack(side="left")
         table = ttk.Treeview(frame, columns=("file", "status", "detail"), show="headings")
         table.heading("file", text="文件")
         table.heading("status", text="状态")
@@ -353,7 +420,7 @@ class Editor(_TkBase):
         progress.pack(side="left", padx=16)
         close_button = ttk.Button(footer, text="关闭", command=dialog.destroy)
         close_button.pack(side="right")
-        start_button = ttk.Button(footer, text="开始清除", style="Accent.TButton")
+        start_button = ttk.Button(footer, text="开始处理", style="Accent.TButton")
         start_button.pack(side="right", padx=(0, 8))
         start_button.configure(state="disabled")
         add_button = ttk.Button(footer, text="添加文件")
@@ -470,7 +537,120 @@ class Editor(_TkBase):
                 parent=dialog,
             )
 
-        start_button.configure(command=start)
+        def plan(meta):
+            if mode.get() == "all":
+                keys = {key for key, _ in editable_fields(meta)}
+                updates = {key: "" for key in keys}
+                return updates, keys | {"__custom__", "__all__"}
+            if mode.get() == "selected":
+                chosen = {name for name, var in categories.items() if var.get()}
+                keys = {key for key, _ in selected_fields(meta, chosen)}
+                return {key: "" for key in keys}, keys
+            requested = {key: value.get().strip() for key, (enabled, value) in edit_fields.items() if enabled.get()}
+            if filename_title.get():
+                requested["title"] = meta.path.stem
+            available = {key for key, _ in editable_fields(meta)}
+            updates = {}
+            for key, value in requested.items():
+                target = "creator" if key == "author" and meta.kind in {"Office", "Legacy Office"} else "tags" if key == "keywords" and meta.kind == "Markdown" else key
+                if target in available:
+                    updates[target] = value
+            return updates, set(updates)
+
+        def start_selected():
+            if not paths:
+                return
+            if mode.get() == "selected" and not any(v.get() for v in categories.values()):
+                messagebox.showwarning("请选择类别", "至少选择一种要清除的属性类别。", parent=dialog)
+                return
+            if mode.get() == "modify" and not filename_title.get() and not any(v[0].get() for v in edit_fields.values()):
+                messagebox.showwarning("请选择修改项", "勾选至少一个要统一修改的属性。", parent=dialog)
+                return
+            snapshots = {}
+            preview_rows = []
+            skipped = 0
+            for path in paths:
+                try:
+                    meta = load(path)
+                    updates, keys = plan(meta)
+                    if mode.get() != "all" and not updates:
+                        skipped += 1
+                        table.item(rows[path], values=(path, "跳过", "该格式没有所选属性"))
+                        continue
+                    snapshots[path] = (meta, updates, keys)
+                    labels = dict(editable_fields(meta))
+                    for key, value in updates.items():
+                        old = meta.values.get(key, "")
+                        if old != value:
+                            preview_rows.append((meta.path.name, labels.get(key, key), old, value or "清除"))
+                    if mode.get() == "all":
+                        preview_rows.extend((meta.path.name, f"自定义：{key}", value, "清除") for key, value in meta.custom.items())
+                        preview_rows.extend((meta.path.name, "其他嵌入属性", meta.values[key], "清除") for key in ("_all_exif", "_all_tags", "_extra_image_metadata") if meta.values.get(key))
+                except Exception as exc:
+                    table.item(rows[path], values=(path, "无法读取", str(exc)))
+            if not snapshots:
+                messagebox.showerror("无法开始", "没有能够读取的文件。", parent=dialog)
+                return
+            if not self._property_table("批量处理前预览", preview_rows, confirm=True, parent=dialog):
+                return
+            start_button.configure(state="disabled")
+            close_button.configure(state="disabled")
+            succeeded = failed = verification_failed = 0
+            result_rows = []
+            for index, (path, (before, updates, keys)) in enumerate(snapshots.items(), start=1):
+                table.item(rows[path], values=(path, "处理中", ""))
+                progress.configure(text=f"正在处理 {index} / {len(snapshots)}")
+                dialog.update_idletasks()
+                try:
+                    meta = before
+                    reason = inplace_write_block_reason(meta.path)
+                    is_copy = bool(reason)
+                    if is_copy:
+                        copy_path = suggested_copy_path(meta.path, "已修改属性" if mode.get() == "modify" else "已清除属性")
+                        shutil.copy2(meta.path, copy_path)
+                        make_writable(copy_path)
+                        meta = load(str(copy_path))
+                    if batch_backup.get() and not is_copy:
+                        backup(meta.path)
+                    def perform(item):
+                        if mode.get() == "all":
+                            clear_embedded_properties(item)
+                        elif updates:
+                            write_selected(item, updates)
+                    try:
+                        perform(meta)
+                    except PermissionError:
+                        if is_copy:
+                            raise
+                        copy_path = suggested_copy_path(meta.path)
+                        shutil.copy2(meta.path, copy_path)
+                        make_writable(copy_path)
+                        meta = load(str(copy_path))
+                        perform(meta)
+                        is_copy = True
+                    after = load(str(meta.path))
+                    changes = changed_values(before, after, keys)
+                    result_rows.extend((meta.path.name, *change) for change in changes)
+                    if mode.get() == "all":
+                        _, residual = verify_embedded_clear(meta.path)
+                    else:
+                        residual = [dict(editable_fields(before)).get(key, key) for key in updates if after.values.get(key, "") != updates[key]]
+                    if residual:
+                        verification_failed += 1
+                        table.item(rows[path], values=(path, "验证未通过", "未达到预期：" + "、".join(residual[:8])))
+                    else:
+                        succeeded += 1
+                        detail = (f"另存副本：{meta.path.name}；" if is_copy else "") + f"已核对 {len(keys)} 项"
+                        table.item(rows[path], values=(path, "成功", detail))
+                except Exception as exc:
+                    failed += 1
+                    table.item(rows[path], values=(path, "失败", str(exc)))
+                dialog.update_idletasks()
+            progress.configure(text=f"完成：成功 {succeeded}，未通过 {verification_failed}，失败 {failed}，跳过 {skipped}")
+            close_button.configure(state="normal")
+            self._property_table("批量处理后对照", result_rows, parent=dialog)
+
+        start_button.configure(command=start_selected)
 
 
 def launch():

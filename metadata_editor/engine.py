@@ -180,6 +180,8 @@ def write_image(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
                 value = values.get(key, "").strip()
                 if value: exif[tag] = value
                 elif tag in exif: del exif[tag]
+            if "gps" in values and not values["gps"].strip() and 34853 in exif:
+                del exif[34853]
         tmp = meta.path.with_name(f".{meta.path.name}.metadata-tmp")
         image.save(tmp, exif=exif.tobytes(), format=image.format)
     os.replace(tmp, meta.path)
@@ -267,8 +269,9 @@ def write_video(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
     command = ["ffmpeg", "-y", "-i", str(meta.path), "-map", "0", "-c", "copy"]
     if clear: command += ["-map_metadata", "-1", "-map_metadata:s", "-1", "-map_chapters", "-1"]
     else:
-        for key in ("title", "author", "description", "date"):
-            if values.get(key, "").strip(): command += ["-metadata", f"{key}={values[key].strip()}"]
+        for key, tag in (("title", "title"), ("author", "artist"), ("description", "comment"), ("date", "date")):
+            if key in values:
+                command += ["-metadata", f"{tag}={values[key].strip()}"]
     command += [str(tmp)]
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
