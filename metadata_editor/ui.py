@@ -5,6 +5,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from .operations import CATEGORIES, changed_values, editable_fields, selected_fields, write_selected
+from .operations import create_output_copy, output_copy_path, restore_from_backup
 from .engine import AUDIO_SUFFIXES, FIELDS, IMAGE_FIELDS, LEGACY_SUFFIXES, MARKDOWN_FIELDS, MARKDOWN_SUFFIXES, MEDIA_FIELDS, OFFICE_SUFFIXES, PDF_FIELDS, VIDEO_SUFFIXES, ZIP_FIELDS, ZIP_SUFFIXES, IMAGE_SUFFIXES, Metadata, backup, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, suggested_copy_path, verify_embedded_clear, write_audio, write_image, write_legacy, write_markdown, write_office, write_pdf, write_video, write_zip
 
 try:
@@ -25,6 +26,10 @@ class Editor(_TkBase):
         self.meta: Metadata | None = None
         self.vars: dict[str, tk.StringVar] = {}
         self.backup_var = tk.BooleanVar(value=True)
+        self.output_mode = tk.StringVar(value="original")
+        self.output_dir = tk.StringVar()
+        self.output_template = tk.StringVar(value="{name}.已处理")
+        self.undo_history: list[tuple[Path, Path]] = []
         self.path_var = tk.StringVar()
         self._style()
         self._layout()
@@ -60,6 +65,17 @@ class Editor(_TkBase):
         ttk.Entry(chooser, textvariable=self.path_var).pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(chooser, text="选择文件", command=self.choose).pack(side="left")
         ttk.Button(chooser, text="批量处理", command=self.batch_clear).pack(side="left", padx=(8, 0))
+        output_bar = ttk.Frame(outer)
+        output_bar.pack(fill="x", pady=(0, 8))
+        ttk.Label(output_bar, text="输出：").pack(side="left")
+        ttk.Radiobutton(output_bar, text="修改原文件", variable=self.output_mode, value="original").pack(side="left")
+        ttk.Radiobutton(output_bar, text="另存副本", variable=self.output_mode, value="copy").pack(side="left", padx=(8, 12))
+        ttk.Label(output_bar, text="文件夹").pack(side="left")
+        ttk.Entry(output_bar, textvariable=self.output_dir, width=22).pack(side="left", padx=(4, 4))
+        ttk.Button(output_bar, text="选择", command=self._choose_output_dir).pack(side="left")
+        ttk.Label(output_bar, text="命名").pack(side="left", padx=(12, 0))
+        ttk.Entry(output_bar, textvariable=self.output_template, width=20).pack(side="left", padx=(4, 0))
+        ttk.Label(output_bar, text="{name}=原文件名", style="Muted.TLabel").pack(side="left", padx=(8, 0))
         self.drop_hint = ttk.Label(outer, text="也可以将单个文件拖到此窗口打开；多个文件请拖入“批量处理”窗口。", style="Muted.TLabel")
         self.drop_hint.pack(anchor="w", pady=(0, 8))
         body = ttk.Panedwindow(outer, orient="horizontal")
@@ -89,6 +105,8 @@ class Editor(_TkBase):
         self.status = ttk.Label(footer, text="请选择一个文件开始", style="Muted.TLabel"); self.status.pack(side="left", padx=16)
         ttk.Button(footer, text="清除嵌入属性", command=self.clear).pack(side="right")
         ttk.Button(footer, text="保存修改", style="Accent.TButton", command=self.save).pack(side="right", padx=(0, 8))
+        ttk.Button(footer, text="从备份恢复", command=self.restore_current).pack(side="right", padx=(0, 8))
+        ttk.Button(footer, text="撤销上次操作", command=self.undo_last).pack(side="right", padx=(0, 8))
         # Let the wheel work naturally even when the pointer is above an entry,
         # label, or nested form widget rather than only above the scrollbar.
         self.bind_all("<MouseWheel>", self._mousewheel, add="+")
@@ -124,6 +142,11 @@ class Editor(_TkBase):
     def choose(self):
         path = filedialog.askopenfilename(filetypes=[("支持的文件", " ".join(f"*{suffix}" for suffix in sorted(SUPPORTED_SUFFIXES))), ("所有文件", "*.*")])
         if path: self.open(path)
+
+    def _choose_output_dir(self):
+        directory = filedialog.askdirectory(parent=self, title="选择副本输出文件夹")
+        if directory:
+            self.output_dir.set(directory)
 
     def _drop_main(self, event):
         paths = [Path(path) for path in self.tk.splitlist(event.data)]
@@ -211,8 +234,8 @@ class Editor(_TkBase):
             return None
         target = filedialog.asksaveasfilename(
             title="另存为可修改副本",
-            initialdir=str(source.path.parent),
-            initialfile=suggested_copy_path(source.path, label).name,
+            initialdir=str(Path(self.output_dir.get()) if self.output_dir.get().strip() else source.path.parent),
+            initialfile=output_copy_path(source.path, self.output_dir.get(), self.output_template.get()).name,
             defaultextension=source.path.suffix,
             filetypes=[("同类型文件", f"*{source.path.suffix}"), ("所有文件", "*.*")],
         )
@@ -229,11 +252,66 @@ class Editor(_TkBase):
     def _target_for_write(self, action: str, label: str) -> tuple[Metadata, bool] | None:
         """Return the original metadata or a user-chosen writable copy target."""
         assert self.meta
+        if self.output_mode.get() == "copy":
+            target = create_output_copy(self.meta.path, self.output_dir.get(), self.output_template.get())
+            return load(str(target)), True
         reason = inplace_write_block_reason(self.meta.path)
         if not reason:
             return self.meta, False
         copy = self._copy_target(self.meta, action, label, reason)
         return (copy, True) if copy else None
+
+    def undo_last(self):
+        if not self.undo_history:
+            messagebox.showinfo("没有可撤销操作", "本次运行中没有可用的操作备份；请使用“从备份恢复”选择历史备份。", parent=self)
+            return
+        targets = list(self.undo_history)
+        if not messagebox.askyesno("确认撤销", f"将从备份恢复 {len(targets)} 个文件。恢复前会为当前状态另建备份，是否继续？", parent=self):
+            return
+        errors = []
+        restored = []
+        for target, saved in targets:
+            try:
+                if not saved.is_file():
+                    raise FileNotFoundError(f"备份不存在：{saved}")
+                backup(target)
+                restore_from_backup(target, saved)
+                restored.append(target)
+            except Exception as exc:
+                errors.append(f"{target.name}: {exc}")
+        self.undo_history = [(target, saved) for target, saved in targets if target not in restored]
+        if self.meta and self.meta.path in restored:
+            self.open(str(self.meta.path))
+        self.status.configure(text=f"已恢复 {len(restored)} 个文件；失败 {len(errors)} 个")
+        if errors:
+            messagebox.showwarning("部分文件恢复失败", "\n".join(errors[:12]), parent=self)
+
+    def restore_current(self):
+        if not self.meta:
+            messagebox.showinfo("请先选择文件", "先打开要恢复的文件。", parent=self)
+            return
+        target = self.meta.path
+        saved = filedialog.askopenfilename(
+            parent=self, title="选择此文件的 .metadata-backup 备份",
+            initialdir=str(target.parent),
+            filetypes=[("备份文件", f"*.metadata-backup{target.suffix}"), ("所有文件", "*.*")],
+        )
+        if not saved:
+            return
+        source = Path(saved)
+        if not source.name.startswith(f"{target.stem}.") or ".metadata-backup" not in source.stem:
+            messagebox.showerror("备份不匹配", "请选择当前文件的备份，文件名应以原文件名开头。", parent=self)
+            return
+        if not messagebox.askyesno("确认恢复", f"用备份恢复：\n{target}\n\n恢复前会为当前状态另建备份。是否继续？", parent=self):
+            return
+        try:
+            backup(target)
+            restore_from_backup(target, source)
+            self.open(str(target))
+            self.undo_history = []
+            self.status.configure(text="已从备份恢复，当前状态另有备份可供再次恢复。")
+        except Exception as exc:
+            messagebox.showerror("恢复失败", str(exc), parent=self)
 
     def save(self):
         if not self.meta: return
@@ -241,7 +319,7 @@ class Editor(_TkBase):
             target = self._target_for_write("保存", "已修改属性")
             if target is None: return
             meta, is_copy = target
-            if self.backup_var.get() and not is_copy: backup(meta.path)
+            saved_backup = backup(meta.path) if self.backup_var.get() else None
             values = {key: var.get().strip() for key, var in self.vars.items()}
             try:
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
@@ -257,6 +335,7 @@ class Editor(_TkBase):
                 copy = self._copy_target(meta, "保存", "已修改属性", "Windows 拒绝替换原文件；它可能仍被其他程序占用")
                 if copy is None: return
                 meta, is_copy = copy, True
+                saved_backup = backup(meta.path) if self.backup_var.get() else None
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
                 elif meta.kind == "Legacy Office": write_legacy(meta, values, False)
                 elif meta.kind == "Markdown": write_markdown(meta, values)
@@ -266,6 +345,7 @@ class Editor(_TkBase):
                 elif meta.kind == "Video": write_video(meta, values)
                 else: write_pdf(meta, values, False)
             set_filesystem_times(meta.path, values["filesystem_created"], values["filesystem_modified"])
+            self.undo_history = [(meta.path, saved_backup)] if saved_backup else []
             self.open(str(meta.path))
             self.status.configure(text="已另存为副本并保存。" if is_copy else "保存成功，已重新读取验证。")
         except Exception as e: messagebox.showerror("保存失败", str(e))
@@ -283,7 +363,7 @@ class Editor(_TkBase):
             target = self._target_for_write("清除属性", "已清除属性")
             if target is None: return
             meta, is_copy = target
-            if self.backup_var.get() and not is_copy: backup(meta.path)
+            saved_backup = backup(meta.path) if self.backup_var.get() else None
             try:
                 clear_embedded_properties(meta)
             except PermissionError:
@@ -291,7 +371,9 @@ class Editor(_TkBase):
                 copy = self._copy_target(meta, "清除属性", "已清除属性", "Windows 拒绝替换原文件；它可能仍被其他程序占用")
                 if copy is None: return
                 meta, is_copy = copy, True
+                saved_backup = backup(meta.path) if self.backup_var.get() else None
                 clear_embedded_properties(meta)
+            self.undo_history = [(meta.path, saved_backup)] if saved_backup else []
             try:
                 verified, remaining = verify_embedded_clear(meta.path)
             except Exception as verify_error:
@@ -396,6 +478,21 @@ class Editor(_TkBase):
             edit_fields[key] = (enabled, value)
         filename_title = tk.BooleanVar(value=False)
         ttk.Checkbutton(edit_bar, text="标题取文件名", variable=filename_title).pack(side="left")
+        output_bar = ttk.Frame(frame)
+        output_bar.pack(fill="x", pady=(0, 8))
+        ttk.Label(output_bar, text="输出：").pack(side="left")
+        ttk.Radiobutton(output_bar, text="修改原文件", variable=self.output_mode, value="original").pack(side="left")
+        ttk.Radiobutton(output_bar, text="另存副本", variable=self.output_mode, value="copy").pack(side="left", padx=(8, 12))
+        ttk.Label(output_bar, text="文件夹").pack(side="left")
+        ttk.Entry(output_bar, textvariable=self.output_dir, width=20).pack(side="left", padx=4)
+        def choose_batch_folder():
+            directory = filedialog.askdirectory(parent=dialog, title="选择副本输出文件夹")
+            if directory:
+                self.output_dir.set(directory)
+        ttk.Button(output_bar, text="选择", command=choose_batch_folder).pack(side="left")
+        ttk.Label(output_bar, text="命名").pack(side="left", padx=(12, 0))
+        ttk.Entry(output_bar, textvariable=self.output_template, width=18).pack(side="left", padx=4)
+        ttk.Label(output_bar, text="{name}=原文件名", style="Muted.TLabel").pack(side="left")
         table = ttk.Treeview(frame, columns=("file", "status", "detail"), show="headings")
         table.heading("file", text="文件")
         table.heading("status", text="状态")
@@ -597,6 +694,7 @@ class Editor(_TkBase):
             close_button.configure(state="disabled")
             succeeded = failed = verification_failed = 0
             result_rows = []
+            operation_backups = []
             for index, (path, (before, updates, keys)) in enumerate(snapshots.items(), start=1):
                 table.item(rows[path], values=(path, "处理中", ""))
                 progress.configure(text=f"正在处理 {index} / {len(snapshots)}")
@@ -604,14 +702,11 @@ class Editor(_TkBase):
                 try:
                     meta = before
                     reason = inplace_write_block_reason(meta.path)
-                    is_copy = bool(reason)
+                    is_copy = self.output_mode.get() == "copy" or bool(reason)
                     if is_copy:
-                        copy_path = suggested_copy_path(meta.path, "已修改属性" if mode.get() == "modify" else "已清除属性")
-                        shutil.copy2(meta.path, copy_path)
-                        make_writable(copy_path)
+                        copy_path = create_output_copy(meta.path, self.output_dir.get(), self.output_template.get())
                         meta = load(str(copy_path))
-                    if batch_backup.get() and not is_copy:
-                        backup(meta.path)
+                    saved_backup = backup(meta.path) if batch_backup.get() else None
                     def perform(item):
                         if mode.get() == "all":
                             clear_embedded_properties(item)
@@ -622,12 +717,13 @@ class Editor(_TkBase):
                     except PermissionError:
                         if is_copy:
                             raise
-                        copy_path = suggested_copy_path(meta.path)
-                        shutil.copy2(meta.path, copy_path)
-                        make_writable(copy_path)
+                        copy_path = create_output_copy(meta.path, self.output_dir.get(), self.output_template.get())
                         meta = load(str(copy_path))
+                        saved_backup = backup(meta.path) if batch_backup.get() else None
                         perform(meta)
                         is_copy = True
+                    if saved_backup:
+                        operation_backups.append((meta.path, saved_backup))
                     after = load(str(meta.path))
                     changes = changed_values(before, after, keys)
                     result_rows.extend((meta.path.name, *change) for change in changes)
@@ -647,6 +743,7 @@ class Editor(_TkBase):
                     table.item(rows[path], values=(path, "失败", str(exc)))
                 dialog.update_idletasks()
             progress.configure(text=f"完成：成功 {succeeded}，未通过 {verification_failed}，失败 {failed}，跳过 {skipped}")
+            self.undo_history = operation_backups
             close_button.configure(state="normal")
             self._property_table("批量处理后对照", result_rows, parent=dialog)
 

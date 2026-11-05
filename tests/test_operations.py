@@ -6,10 +6,29 @@ from pathlib import Path
 from pypdf import PdfWriter
 
 from metadata_editor.engine import load, verify_embedded_clear, clear_embedded_properties
-from metadata_editor.operations import changed_values, selected_fields, write_selected
+from metadata_editor.operations import changed_values, create_output_copy, output_copy_path, restore_from_backup, selected_fields, write_selected
 
 
 class SelectiveOperationsTest(unittest.TestCase):
+    def test_copy_destination_collision_and_restore(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "input.md"
+            output = root / "copies"
+            output.mkdir()
+            source.write_text("original", encoding="utf-8")
+            first = create_output_copy(source, str(output), "{name}.已处理")
+            second = create_output_copy(source, str(output), "{name}.已处理")
+            self.assertNotEqual(first, second)
+            self.assertEqual(first.read_text(encoding="utf-8"), "original")
+            self.assertEqual(second.read_text(encoding="utf-8"), "original")
+            first.write_text("edited", encoding="utf-8")
+            restore_from_backup(first, source)
+            self.assertEqual(first.read_text(encoding="utf-8"), "original")
+            self.assertEqual(source.read_text(encoding="utf-8"), "original")
+            with self.assertRaises(ValueError):
+                output_copy_path(source, str(output), "{name.__class__}")
+
     def test_markdown_selective_clear_and_batch_title(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "report.md"
