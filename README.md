@@ -15,7 +15,7 @@
 - `FileMetadataEditor-vX.Y-Windows-x64.exe`：单文件便携版，下载后可直接运行，但首次启动需要解包，启动速度较慢。
 - `FileMetadataEditor-vX.Y-Windows-x64-FastStart.zip`：快速启动版，解压后运行文件夹中的 EXE；不要单独移动 EXE，需保留同目录运行组件。
 
-两种版本均无需单独安装 Python 或 Java。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
+按本仓库当前构建流程生成的两种版本均无需单独安装 Python、Java、FFmpeg 或 ffprobe。请以 Release 说明确认具体版本包含的组件。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
 
 ## 支持范围
 
@@ -27,7 +27,7 @@
 | Markdown | `.md`、`.markdown` 等 | YAML Front Matter |
 | 图片 | JPEG、TIFF、WebP | 常用 EXIF 字段 |
 | 音频 | `.mp3`、`.flac`、`.m4a`、`.wav` | 常用标签 |
-| 视频 | `.mp4`、`.mov`、`.mkv` | 需系统可用的 FFmpeg |
+| 视频 | `.mp4`、`.mov`、`.mkv` | 发布版内置 FFmpeg 与 ffprobe |
 | ZIP | `.zip` | 压缩包注释 |
 
 支持单文件编辑、批量清除、按类别批量清除、批量修改、拖放、保存前备份，以及文件只读或占用时另存为可写副本。清除前可预览将处理的属性，处理后可逐项查看原值和结果；单文件和批量操作都会重新读取文件，区分验证通过、检测到残留和无法验证。批量修改可统一填写标题、作者、关键词，或用文件名作为标题；不同格式不支持的字段会跳过。清除和修改操作会改变文件，请先备份重要文件。
@@ -39,7 +39,8 @@
 - 加密 PDF 不支持修改；检测到数字签名的 PDF 会拒绝修改，避免破坏签名。
 - 旧版 Office 加密、损坏或受数字签名保护的文件会拒绝处理。
 - 只读或被 Office/WPS、同步软件占用时，程序可能无法覆盖原件；请关闭占用程序，或使用自动生成的可写副本。
-- 视频属性编辑需要安装 FFmpeg 并确保 `ffmpeg` 可从命令行访问。其他格式和功能不依赖 FFmpeg。
+- 从源码运行时，视频功能需要系统提供 `ffmpeg` 和 `ffprobe`；也可分别设置 `FILE_METADATA_FFMPEG`、`FILE_METADATA_FFPROBE` 为可执行文件路径。发布版已内置，无需另外安装。
+- WAV 支持 RIFF INFO 标签的读取、编辑和清除。清除后的验证会排除旧式 Office 编辑时长的零值、TIFF 必需的结构标签以及视频容器自动生成的技术标识。
 - 修改后可重新打开文件检查属性；不同软件可能缓存属性，关闭后重开或复制到本地目录再确认。
 
 ## 从源码运行
@@ -53,7 +54,9 @@ python app.py
 
 ## 自动构建
 
-推送形如 `v3.1` 的版本标签后，GitHub Actions 会自动在 Windows x64 runner 上检查代码、生成精简 Java 运行时、构建并冒烟测试单文件 EXE 与快速启动 ZIP，然后创建对应的 GitHub Release 并附上两个下载包。也可以手动发布已有 Release，工作流会构建并上传附件；手动触发构建则只保存为 14 天有效的 Actions 构建产物。运行时随程序提供，下载用户无需单独安装 Java。
+推送形如 `v3.1` 的版本标签后，GitHub Actions 会自动在 Windows x64 runner 上检查代码、生成精简 Java 运行时、校验并集成 FFmpeg/ffprobe、构建并冒烟测试单文件 EXE 与快速启动 ZIP，然后创建对应的 GitHub Release 并附上两个下载包。也可以手动发布已有 Release，工作流会构建并上传附件；手动触发构建则只保存为 14 天有效的 Actions 构建产物。
+
+视频运行组件采用 [BtbN 的 LGPL shared 构建](https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-10-31-12-59)，打包脚本固定压缩包 SHA-256；发布包内保留其 `LICENSE.txt`。对应的 [FFmpeg 源码](https://github.com/FFmpeg/FFmpeg)和[构建脚本](https://github.com/BtbN/FFmpeg-Builds)可在各自仓库查看。
 
 ## 项目结构
 
@@ -61,6 +64,7 @@ python app.py
 app.py                 程序入口与 Windows 高 DPI 配置
 metadata_editor/       元数据读写与 Tkinter 界面
 legacy_helper/         Apache POI 旧版 Office 属性兼容组件
+scripts/               Windows 视频运行组件下载与校验脚本
 requirements.txt       源码运行依赖
 run.cmd                Windows 快捷启动脚本
 high-dpi.manifest      Windows 高 DPI 清单

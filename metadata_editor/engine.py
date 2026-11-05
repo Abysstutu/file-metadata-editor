@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -72,6 +73,8 @@ MARKDOWN_FIELDS = [("title", "标题"), ("author", "作者"), ("date", "日期")
 IMAGE_FIELDS = [("title", "标题"), ("author", "作者"), ("description", "描述"), ("created", "拍摄时间"), ("gps", "GPS")]
 ZIP_FIELDS = [("comment", "压缩包注释"), ("file_count", "文件数量")]
 MEDIA_FIELDS = [("title", "标题"), ("author", "作者"), ("album", "专辑"), ("date", "日期"), ("genre", "类型"), ("description", "描述")]
+WAV_INFO_FIELDS = {"title": b"INAM", "author": b"IART", "album": b"IPRD", "date": b"ICRD", "genre": b"IGNR", "description": b"ICMT"}
+TIFF_STRUCTURAL_TAGS = {256, 257, 258, 259, 262, 273, 277, 278, 279, 282, 283, 284, 296, 339}
 
 
 @dataclass
@@ -160,7 +163,7 @@ def read_image(path: Path) -> Metadata:
         result.values["_all_exif"] = "\\n".join(
             f"{exif_tags.TAGS.get(key, key) if exif_tags else key}: {value}"
             for key, value in exif.items()
-            if str(value).strip()
+            if str(value).strip() and not (path.suffix.lower() in {".tif", ".tiff"} and key in TIFF_STRUCTURAL_TAGS)
         )
         extra_metadata = [key for key in ("xmp", "photoshop", "iptc", "comment") if image.info.get(key)]
         result.values["_extra_image_metadata"] = ", ".join(extra_metadata)
@@ -204,6 +207,92 @@ def write_zip(meta: Metadata, values: dict[str, str], clear: bool = False) -> No
     os.replace(tmp, meta.path)
 
 
+def _wav_info(path: Path) -> dict[bytes, str]:
+    """Read RIFF LIST/INFO fields, which Mutagen's WAVE reader does not expose."""
+    fields = {}
+    with path.open("rb") as stream:
+        header = stream.read(12)
+        if header[:4] != b"RIFF" or header[8:] != b"WAVE":
+            return fields
+        while chunk := stream.read(8):
+            if len(chunk) != 8:
+                break
+            kind, size = chunk[:4], struct.unpack("<I", chunk[4:])[0]
+            if kind == b"LIST" and size >= 4:
+                list_type = stream.read(4)
+                payload = stream.read(size - 4)
+                if list_type == b"INFO":
+                    offset = 0
+                    while offset + 8 <= len(payload):
+                        tag = payload[offset:offset + 4]
+                        length = struct.unpack("<I", payload[offset + 4:offset + 8])[0]
+                        raw = payload[offset + 8:offset + 8 + length].rstrip(b"\0")
+                        try:
+                            value = raw.decode("utf-8-sig")
+                        except UnicodeDecodeError:
+                            value = raw.decode("mbcs" if os.name == "nt" else "latin-1", "replace")
+                        fields[tag] = value
+                        offset += 8 + length + (length % 2)
+            else:
+                stream.seek(size, os.SEEK_CUR)
+            if size % 2:
+                stream.seek(1, os.SEEK_CUR)
+    return fields
+
+
+def _write_wav_info(path: Path, fields: dict[bytes, str]) -> None:
+    """Replace INFO chunks while streaming audio data unchanged."""
+    descriptor, tmp_name = tempfile.mkstemp(suffix=".wav", dir=path.parent)
+    os.close(descriptor)
+    tmp = Path(tmp_name)
+    try:
+        with path.open("rb") as source, tmp.open("wb") as target:
+            header = source.read(12)
+            if header[:4] != b"RIFF" or header[8:] != b"WAVE":
+                raise ValueError("仅支持标准 RIFF/WAVE 文件的 INFO 属性。")
+            target.write(header[:4] + b"\0\0\0\0" + header[8:])
+            while chunk := source.read(8):
+                if len(chunk) != 8:
+                    raise ValueError("WAV 数据块不完整。")
+                kind, size = chunk[:4], struct.unpack("<I", chunk[4:])[0]
+                if kind == b"LIST" and size >= 4:
+                    list_type = source.read(4)
+                    if len(list_type) != 4:
+                        raise ValueError("WAV LIST 数据块不完整。")
+                    if list_type == b"INFO":
+                        source.seek(size - 4 + (size % 2), os.SEEK_CUR)
+                        continue
+                    target.write(chunk + list_type)
+                    remaining = size - 4 + (size % 2)
+                else:
+                    target.write(chunk)
+                    remaining = size + (size % 2)
+                while remaining:
+                    data = source.read(min(1024 * 1024, remaining))
+                    if not data:
+                        raise ValueError("WAV 数据块不完整。")
+                    target.write(data)
+                    remaining -= len(data)
+            if fields:
+                payload = bytearray(b"INFO")
+                for tag, value in fields.items():
+                    raw = value.encode("utf-8") + b"\0"
+                    payload.extend(tag + struct.pack("<I", len(raw)) + raw)
+                    if len(raw) % 2:
+                        payload.append(0)
+                target.write(b"LIST" + struct.pack("<I", len(payload)) + payload)
+                if len(payload) % 2:
+                    target.write(b"\0")
+            riff_size = target.tell() - 8
+            if riff_size > 0xFFFFFFFF:
+                raise ValueError("WAV 超过标准 RIFF 的 4 GB 大小限制。")
+            target.seek(4)
+            target.write(struct.pack("<I", riff_size))
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def read_audio(path: Path) -> Metadata:
     mutagen_file = _load_mutagen()
     result = Metadata(path, "Audio"); result.values.update(filesystem_values(path))
@@ -217,6 +306,13 @@ def read_audio(path: Path) -> Metadata:
             for key, value in (audio.tags or {}).items()
             if str(value).strip()
         )
+    if path.suffix.lower() == ".wav":
+        info = _wav_info(path)
+        for key, tag in WAV_INFO_FIELDS.items():
+            if info.get(tag):
+                result.values[key] = info[tag]
+        info_lines = [f"{tag.decode('ascii', 'replace')}: {value}" for tag, value in info.items() if value.strip()]
+        result.values["_all_tags"] = "\n".join(filter(None, [result.values.get("_all_tags", ""), *info_lines]))
     return result
 
 
@@ -224,6 +320,21 @@ def write_audio(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
     mutagen_file = _load_mutagen()
     audio = mutagen_file(meta.path, easy=True)
     if audio is None: raise ValueError("无法识别音频容器。")
+    if meta.path.suffix.lower() == ".wav":
+        if clear:
+            if audio.tags:
+                audio.delete()
+            _write_wav_info(meta.path, {})
+        else:
+            info = _wav_info(meta.path)
+            for key, tag in WAV_INFO_FIELDS.items():
+                value = values.get(key, "").strip()
+                if value:
+                    info[tag] = value
+                else:
+                    info.pop(tag, None)
+            _write_wav_info(meta.path, info)
+        return
     if clear:
         audio.delete()
         return
@@ -236,8 +347,38 @@ def write_audio(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
     audio.save()
 
 
+def _media_executable(name: str) -> str:
+    configured = os.environ.get(f"FILE_METADATA_{name.upper()}")
+    if configured:
+        return configured
+    package_root = Path(__file__).resolve().parent.parent
+    bundled_root = Path(getattr(sys, "_MEIPASS", package_root))
+    executable = bundled_root / "media-tools" / "bin" / (f"{name}.exe" if os.name == "nt" else name)
+    return str(executable) if executable.exists() else name
+
+
 def _ffprobe() -> str:
-    return os.environ.get("FILE_METADATA_FFPROBE", "ffprobe")
+    return _media_executable("ffprobe")
+
+
+def _ffmpeg() -> str:
+    return _media_executable("ffmpeg")
+
+
+def _video_structural_tag(scope: str, key: str, value: object) -> bool:
+    name = key.lower()
+    if scope == "容器" and name in {"major_brand", "minor_version", "compatible_brands", "encoder"}:
+        return True
+    if scope.startswith("音视频流"):
+        if name in {"duration", "encoder", "bps", "number_of_frames"}:
+            return True
+        if name == "language" and str(value).lower() == "und":
+            return True
+        if name == "handler_name" and str(value) in {"VideoHandler", "SoundHandler", "SubtitleHandler"}:
+            return True
+        if name == "vendor_id":
+            return True
+    return False
 
 
 def read_video(path: Path) -> Metadata:
@@ -245,7 +386,8 @@ def read_video(path: Path) -> Metadata:
     try:
         completed = subprocess.run(
             [_ffprobe(), "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", str(path)],
-            text=True, capture_output=True, check=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True, check=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         probe = json.loads(completed.stdout)
         format_info = probe.get("format", {})
@@ -257,7 +399,8 @@ def read_video(path: Path) -> Metadata:
         scopes.extend((f"音视频流 {item.get('index', index)}", item.get("tags", {})) for index, item in enumerate(probe.get("streams", [])))
         scopes.extend((f"章节 {index + 1}", item.get("tags", {})) for index, item in enumerate(probe.get("chapters", [])))
         for scope, scoped_tags in scopes:
-            all_tags.extend(f"{scope} / {key}: {value}" for key, value in scoped_tags.items() if str(value).strip())
+            all_tags.extend(f"{scope} / {key}: {value}" for key, value in scoped_tags.items()
+                            if str(value).strip() and not _video_structural_tag(scope, key, value))
         result.values["_all_tags"] = "\n".join(all_tags)
     except FileNotFoundError as exc:
         raise RuntimeError("视频功能需要 ffprobe；请安装 FFmpeg，或设置 FILE_METADATA_FFPROBE。") from exc
@@ -266,7 +409,7 @@ def read_video(path: Path) -> Metadata:
 
 def write_video(meta: Metadata, values: dict[str, str], clear: bool = False) -> None:
     tmp = meta.path.with_name(f".{meta.path.name}.metadata-tmp{meta.path.suffix}")
-    command = ["ffmpeg", "-y", "-i", str(meta.path), "-map", "0", "-c", "copy"]
+    command = [_ffmpeg(), "-y", "-i", str(meta.path), "-map", "0", "-c", "copy"]
     if clear: command += ["-map_metadata", "-1", "-map_metadata:s", "-1", "-map_chapters", "-1"]
     else:
         for key, tag in (("title", "title"), ("author", "artist"), ("description", "comment"), ("date", "date")):
@@ -274,7 +417,8 @@ def write_video(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
                 command += ["-metadata", f"{tag}={values[key].strip()}"]
     command += [str(tmp)]
     try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except FileNotFoundError as exc:
         raise RuntimeError("视频写入需要 FFmpeg；请安装 FFmpeg，或将其加入 PATH。") from exc
     except subprocess.CalledProcessError as exc:
@@ -662,6 +806,7 @@ def verify_embedded_clear(path: str | Path) -> tuple[Metadata, list[str]]:
         labels.get(key, key)
         for key, value in result.values.items()
         if key not in ignored and str(value).strip()
+        and not (result.kind == "Legacy Office" and key == "totalTime" and str(value).strip() == "0")
     ]
     remaining.extend(
         f"自定义属性：{name}"
