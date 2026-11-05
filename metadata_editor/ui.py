@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -22,6 +23,7 @@ class Editor(_TkBase):
     def __init__(self):
         super().__init__()
         self.title("文件源数据编辑")
+        self._apply_icon(self)
         self.after_idle(self._fit_initial_window)
         self.meta: Metadata | None = None
         self.vars: dict[str, tk.StringVar] = {}
@@ -33,6 +35,13 @@ class Editor(_TkBase):
         self.path_var = tk.StringVar()
         self._style()
         self._layout()
+
+    def _apply_icon(self, window):
+        root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+        icon = root / "assets" / "app-icon.png"
+        if icon.exists():
+            self._icon_image = tk.PhotoImage(file=icon)
+            window.iconphoto(True, self._icon_image)
 
     def _fit_initial_window(self):
         """Size the first window to the actual DPI-aware monitor dimensions."""
@@ -46,41 +55,94 @@ class Editor(_TkBase):
     def _style(self):
         style = ttk.Style(self)
         style.theme_use("clam")
-        style.configure("TFrame", background="#f7f8fa")
-        style.configure("Card.TLabelframe", background="#ffffff", bordercolor="#dfe3e8", relief="solid")
-        style.configure("Card.TLabelframe.Label", background="#ffffff", foreground="#243447", font=("Microsoft YaHei UI", 10, "bold"))
-        style.configure("Title.TLabel", background="#f7f8fa", foreground="#172b4d", font=("Microsoft YaHei UI", 15, "bold"))
-        style.configure("Muted.TLabel", background="#f7f8fa", foreground="#667085", font=("Microsoft YaHei UI", 9))
-        style.configure("Accent.TButton", font=("Microsoft YaHei UI", 10, "bold"), foreground="white", background="#2563eb", padding=(16, 7))
-        style.map("Accent.TButton", background=[("active", "#1d4ed8")])
+        bg, surface, border, ink, muted, accent = "#f3f6fb", "#ffffff", "#dbe3ee", "#172b4d", "#64748b", "#2563eb"
+        self.configure(background=bg)
+        style.configure("TFrame", background=bg)
+        style.configure("Surface.TFrame", background=surface)
+        style.configure("TLabel", background=bg, foreground=ink, font=("Microsoft YaHei UI", 9))
+        style.configure("Surface.TLabel", background=surface, foreground=ink)
+        style.map("Surface.TLabel", foreground=[("disabled", "#94a3b8")])
+        style.configure("Card.TLabelframe", background=surface, bordercolor=border, relief="solid", borderwidth=1)
+        style.configure("Card.TLabelframe.Label", background=bg, foreground=ink, font=("Microsoft YaHei UI", 10, "bold"))
+        style.configure("Title.TLabel", background=bg, foreground="#102a52", font=("Microsoft YaHei UI", 17, "bold"))
+        style.configure("Muted.TLabel", background=bg, foreground=muted, font=("Microsoft YaHei UI", 9))
+        style.configure("Section.TLabel", background=bg, foreground="#34537d", font=("Microsoft YaHei UI", 9, "bold"))
+        style.configure("TButton", font=("Microsoft YaHei UI", 9), padding=(12, 6), background=surface, foreground=ink, bordercolor=border)
+        style.map("TButton", background=[("active", "#eaf1fb")], bordercolor=[("focus", accent)])
+        style.configure("Accent.TButton", font=("Microsoft YaHei UI", 9, "bold"), foreground="white", background=accent, padding=(16, 7), bordercolor=accent)
+        style.map("Accent.TButton", background=[("active", "#1d4ed8"), ("disabled", "#9db9ef")], foreground=[("disabled", "#ffffff")])
+        style.configure("Danger.TButton", font=("Microsoft YaHei UI", 9), foreground="#9f3434", background="#fff5f5", bordercolor="#f3cccc", padding=(12, 6))
+        style.map("Danger.TButton", background=[("active", "#ffe7e7")])
+        style.configure("TEntry", padding=(8, 6), fieldbackground=surface, bordercolor=border, lightcolor=border, darkcolor=border)
+        style.configure("TRadiobutton", background=bg, foreground=ink, font=("Microsoft YaHei UI", 9))
+        style.configure("TCheckbutton", background=bg, foreground=ink, font=("Microsoft YaHei UI", 9))
+        style.configure("Surface.TRadiobutton", background=surface, foreground=ink)
+        style.configure("Surface.TCheckbutton", background=surface, foreground=ink)
+        style.configure("Treeview", background=surface, fieldbackground=surface, foreground=ink, rowheight=29, borderwidth=0, font=("Microsoft YaHei UI", 9))
+        style.configure("Treeview.Heading", background="#edf2f9", foreground="#385276", font=("Microsoft YaHei UI", 9, "bold"), relief="flat", padding=(6, 7))
+        style.map("Treeview", background=[("selected", "#dbeafe")], foreground=[("selected", "#102a52")])
+
+    def _output_settings(self, parent, backup_var, browse_command):
+        panel = ttk.Labelframe(parent, text=" 输出设置 ", style="Card.TLabelframe", padding=(14, 11))
+        panel.pack(fill="x", pady=(0, 10))
+
+        choices = ttk.Frame(panel, style="Surface.TFrame")
+        choices.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+        ttk.Label(choices, text="保存方式", width=12, style="Surface.TLabel").pack(side="left")
+        ttk.Radiobutton(choices, text="修改原文件", variable=self.output_mode, value="original", style="Surface.TRadiobutton").pack(side="left", padx=(0, 18))
+        ttk.Radiobutton(choices, text="另存副本", variable=self.output_mode, value="copy", style="Surface.TRadiobutton").pack(side="left")
+        backup_options = ttk.Frame(choices, style="Surface.TFrame")
+        backup_options.pack(side="right")
+        ttk.Label(backup_options, text="保存前备份", style="Surface.TLabel").pack(side="left", padx=(0, 10))
+        ttk.Radiobutton(backup_options, text="是", variable=backup_var, value=True, style="Surface.TRadiobutton").pack(side="left", padx=(0, 10))
+        ttk.Radiobutton(backup_options, text="否", variable=backup_var, value=False, style="Surface.TRadiobutton").pack(side="left")
+
+        name_label = ttk.Label(panel, text="副本命名", width=12, style="Surface.TLabel")
+        name_label.grid(row=1, column=0, sticky="w")
+        naming = ttk.Frame(panel, style="Surface.TFrame")
+        naming.grid(row=1, column=1, columnspan=2, sticky="w")
+        name_entry = ttk.Entry(naming, textvariable=self.output_template, width=28)
+        name_entry.pack(side="left")
+        name_hint = ttk.Label(naming, text="{name} 代表原文件名 · 同名自动加序号", style="Surface.TLabel")
+        name_hint.pack(side="left", padx=(12, 0))
+
+        folder_label = ttk.Label(panel, text="副本文件夹", width=12, style="Surface.TLabel")
+        folder_label.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        folder_entry = ttk.Entry(panel, textvariable=self.output_dir)
+        folder_entry.grid(row=2, column=1, sticky="ew", padx=(0, 8), pady=(10, 0))
+        browse_button = ttk.Button(panel, text="浏览", command=browse_command)
+        browse_button.grid(row=2, column=2, sticky="ew", pady=(10, 0))
+
+        def update_copy_controls(*_):
+            state = "normal" if self.output_mode.get() == "copy" else "disabled"
+            for widget in (name_entry, folder_entry, browse_button, name_label, name_hint, folder_label):
+                widget.configure(state=state)
+
+        trace_id = self.output_mode.trace_add("write", update_copy_controls)
+        def remove_trace(event):
+            if event.widget is panel:
+                self.output_mode.trace_remove("write", trace_id)
+        panel.bind("<Destroy>", remove_trace, add="+")
+        update_copy_controls()
+        panel.columnconfigure(1, weight=1)
+        return panel
 
     def _layout(self):
-        outer = ttk.Frame(self, padding=18)
+        outer = ttk.Frame(self, padding=(16, 14, 16, 12))
         outer.pack(fill="both", expand=True)
         ttk.Label(outer, text="文件源数据编辑", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(outer, text="本地编辑 · Office 与 PDF · 保存前可自动备份", style="Muted.TLabel").pack(anchor="w", pady=(2, 14))
-        chooser = ttk.Frame(outer)
-        chooser.pack(fill="x", pady=(0, 12))
-        ttk.Label(chooser, text="文件", width=6).pack(side="left")
+        ttk.Label(outer, text="在本机查看、修改和清除文件属性", style="Muted.TLabel").pack(anchor="w", pady=(2, 12))
+        chooser = ttk.Labelframe(outer, text=" 选择文件 ", style="Card.TLabelframe", padding=(12, 8))
+        chooser.pack(fill="x", pady=(0, 10))
         ttk.Entry(chooser, textvariable=self.path_var).pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(chooser, text="选择文件", command=self.choose).pack(side="left")
         ttk.Button(chooser, text="批量处理", command=self.batch_clear).pack(side="left", padx=(8, 0))
-        output_bar = ttk.Frame(outer)
-        output_bar.pack(fill="x", pady=(0, 8))
-        ttk.Label(output_bar, text="输出：").pack(side="left")
-        ttk.Radiobutton(output_bar, text="修改原文件", variable=self.output_mode, value="original").pack(side="left")
-        ttk.Radiobutton(output_bar, text="另存副本", variable=self.output_mode, value="copy").pack(side="left", padx=(8, 12))
-        ttk.Label(output_bar, text="文件夹").pack(side="left")
-        ttk.Entry(output_bar, textvariable=self.output_dir, width=22).pack(side="left", padx=(4, 4))
-        ttk.Button(output_bar, text="选择", command=self._choose_output_dir).pack(side="left")
-        ttk.Label(output_bar, text="命名").pack(side="left", padx=(12, 0))
-        ttk.Entry(output_bar, textvariable=self.output_template, width=20).pack(side="left", padx=(4, 0))
-        ttk.Label(output_bar, text="{name}=原文件名", style="Muted.TLabel").pack(side="left", padx=(8, 0))
-        self.drop_hint = ttk.Label(outer, text="也可以将单个文件拖到此窗口打开；多个文件请拖入“批量处理”窗口。", style="Muted.TLabel")
-        self.drop_hint.pack(anchor="w", pady=(0, 8))
+        self._output_settings(outer, self.backup_var, self._choose_output_dir)
+        self.drop_hint = ttk.Label(outer, text="可拖入单个文件；多个文件请拖入批量处理窗口", style="Muted.TLabel")
+        self.drop_hint.pack(anchor="w", pady=(0, 7))
         body = ttk.Panedwindow(outer, orient="horizontal")
         left = ttk.Labelframe(body, text=" 文件信息 ", style="Card.TLabelframe", padding=8)
-        right = ttk.Labelframe(body, text=" 编辑属性 ", style="Card.TLabelframe", padding=14)
+        right = ttk.Labelframe(body, text=" 编辑属性 ", style="Card.TLabelframe", padding=12)
         body.add(left, weight=1); body.add(right, weight=2)
         self.tree = ttk.Treeview(left, columns=("value",), show="tree headings", selectmode="browse")
         self.tree.heading("#0", text="属性"); self.tree.heading("value", text="值")
@@ -89,7 +151,7 @@ class Editor(_TkBase):
         self.tree.pack(side="left", fill="both", expand=True); scroll.pack(side="right", fill="y")
         self.form_canvas = tk.Canvas(right, highlightthickness=0, background="#ffffff")
         form_scroll = ttk.Scrollbar(right, orient="vertical", command=self.form_canvas.yview)
-        self.form = ttk.Frame(self.form_canvas, padding=(2, 2, 10, 2))
+        self.form = ttk.Frame(self.form_canvas, style="Surface.TFrame", padding=(2, 2, 10, 2))
         self.form.bind("<Configure>", lambda _e: self.form_canvas.configure(scrollregion=self.form_canvas.bbox("all")))
         self.form_canvas.create_window((0, 0), window=self.form, anchor="nw", tags="form")
         self.form_canvas.bind("<Configure>", lambda e: self.form_canvas.itemconfigure("form", width=e.width))
@@ -97,16 +159,15 @@ class Editor(_TkBase):
         self.form_canvas.pack(side="left", fill="both", expand=True); form_scroll.pack(side="right", fill="y")
         # Pack the non-shrinking footer first.  The body is the only region
         # allowed to lose height while the user makes the window smaller.
-        footer = ttk.Frame(outer); footer.pack(fill="x", side="bottom", pady=(12, 0))
+        footer = ttk.Frame(outer); footer.pack(fill="x", side="bottom", pady=(10, 0))
         body.pack(fill="both", expand=True)
-        ttk.Label(footer, text="保存前备份：").pack(side="left")
-        ttk.Radiobutton(footer, text="是", variable=self.backup_var, value=True).pack(side="left", padx=(2, 8))
-        ttk.Radiobutton(footer, text="否", variable=self.backup_var, value=False).pack(side="left")
-        self.status = ttk.Label(footer, text="请选择一个文件开始", style="Muted.TLabel"); self.status.pack(side="left", padx=16)
-        ttk.Button(footer, text="清除嵌入属性", command=self.clear).pack(side="right")
-        ttk.Button(footer, text="保存修改", style="Accent.TButton", command=self.save).pack(side="right", padx=(0, 8))
-        ttk.Button(footer, text="从备份恢复", command=self.restore_current).pack(side="right", padx=(0, 8))
-        ttk.Button(footer, text="撤销上次操作", command=self.undo_last).pack(side="right", padx=(0, 8))
+        status_row = ttk.Frame(footer); status_row.pack(fill="x", pady=(0, 7))
+        self.status = ttk.Label(status_row, text="请选择一个文件开始", style="Muted.TLabel"); self.status.pack(side="left")
+        action_row = ttk.Frame(footer); action_row.pack(fill="x")
+        ttk.Button(action_row, text="撤销上次操作", command=self.undo_last).pack(side="left")
+        ttk.Button(action_row, text="从备份恢复", command=self.restore_current).pack(side="left", padx=(8, 0))
+        ttk.Button(action_row, text="清除嵌入属性", style="Danger.TButton", command=self.clear).pack(side="right")
+        ttk.Button(action_row, text="保存修改", style="Accent.TButton", command=self.save).pack(side="right", padx=(0, 8))
         # Let the wheel work naturally even when the pointer is above an entry,
         # label, or nested form widget rather than only above the scrollbar.
         self.bind_all("<MouseWheel>", self._mousewheel, add="+")
@@ -206,7 +267,7 @@ class Editor(_TkBase):
     def _section(self, title, fields, readonly=False):
         box = ttk.Labelframe(self.form, text=f" {title} ", style="Card.TLabelframe", padding=10); box.pack(fill="x", pady=(0, 12))
         for row, (key, label) in enumerate(fields):
-            ttk.Label(box, text=label, width=18).grid(row=row, column=0, sticky="w", padx=(0, 10), pady=5)
+            ttk.Label(box, text=label, width=18, style="Surface.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 10), pady=5)
             var = tk.StringVar(value=self.meta.values.get(key, "")); self.vars[key] = var
             ttk.Entry(box, textvariable=var).grid(row=row, column=1, sticky="ew", pady=5)
         box.columnconfigure(1, weight=1)
@@ -448,51 +509,47 @@ class Editor(_TkBase):
         initial_paths = list(paths)
         dialog = tk.Toplevel(self)
         dialog.title("批量处理属性")
+        self._apply_icon(dialog)
         dialog.transient(self)
         dialog.grab_set()
         dialog.minsize(760, 430)
         dialog.geometry("900x560")
-        frame = ttk.Frame(dialog, padding=16)
-        frame.pack(fill="both", expand=True)
+        frame = ttk.Frame(dialog, padding=(16, 14, 16, 8))
         ttk.Label(frame, text="批量处理属性", style="Title.TLabel").pack(anchor="w")
         hint = ttk.Label(frame, text="将文件拖到此窗口，或点击“添加文件”。支持一次加入多个文件。", style="Muted.TLabel")
         hint.pack(anchor="w", pady=(3, 12))
-        options = ttk.Frame(frame)
+        options = ttk.Labelframe(frame, text=" 操作方式 ", style="Card.TLabelframe", padding=(10, 7))
         options.pack(fill="x", pady=(0, 8))
         mode = tk.StringVar(value="all")
         for label, value in (("清除全部", "all"), ("按类别清除", "selected"), ("批量修改", "modify")):
-            ttk.Radiobutton(options, text=label, variable=mode, value=value).pack(side="left", padx=(0, 14))
-        category_bar = ttk.Frame(frame)
-        category_bar.pack(fill="x", pady=(0, 8))
-        ttk.Label(category_bar, text="清除类别：").pack(side="left")
+            ttk.Radiobutton(options, text=label, variable=mode, value=value, style="Surface.TRadiobutton").pack(side="left", padx=(0, 18))
+        category_bar = ttk.Labelframe(frame, text=" 选择清除类别 ", style="Card.TLabelframe", padding=(10, 7))
         categories = {name: tk.BooleanVar(value=True) for name in CATEGORIES}
         for name, variable in categories.items():
-            ttk.Checkbutton(category_bar, text=name, variable=variable).pack(side="left", padx=(0, 10))
-        edit_bar = ttk.Frame(frame)
-        edit_bar.pack(fill="x", pady=(0, 8))
+            ttk.Checkbutton(category_bar, text=name, variable=variable, style="Surface.TCheckbutton").pack(side="left", padx=(0, 10))
+        edit_bar = ttk.Labelframe(frame, text=" 统一修改的属性 ", style="Card.TLabelframe", padding=(10, 7))
         edit_fields = {}
         for label, key in (("标题", "title"), ("作者", "author"), ("关键词", "keywords")):
             enabled, value = tk.BooleanVar(value=False), tk.StringVar()
-            ttk.Checkbutton(edit_bar, text=label, variable=enabled).pack(side="left")
+            ttk.Checkbutton(edit_bar, text=label, variable=enabled, style="Surface.TCheckbutton").pack(side="left")
             ttk.Entry(edit_bar, textvariable=value, width=16).pack(side="left", padx=(0, 8))
             edit_fields[key] = (enabled, value)
         filename_title = tk.BooleanVar(value=False)
-        ttk.Checkbutton(edit_bar, text="标题取文件名", variable=filename_title).pack(side="left")
-        output_bar = ttk.Frame(frame)
-        output_bar.pack(fill="x", pady=(0, 8))
-        ttk.Label(output_bar, text="输出：").pack(side="left")
-        ttk.Radiobutton(output_bar, text="修改原文件", variable=self.output_mode, value="original").pack(side="left")
-        ttk.Radiobutton(output_bar, text="另存副本", variable=self.output_mode, value="copy").pack(side="left", padx=(8, 12))
-        ttk.Label(output_bar, text="文件夹").pack(side="left")
-        ttk.Entry(output_bar, textvariable=self.output_dir, width=20).pack(side="left", padx=4)
+        ttk.Checkbutton(edit_bar, text="标题取文件名", variable=filename_title, style="Surface.TCheckbutton").pack(side="left")
+        def show_mode_options(*_):
+            category_bar.pack_forget()
+            edit_bar.pack_forget()
+            if mode.get() == "selected":
+                category_bar.pack(fill="x", pady=(0, 8), after=options)
+            elif mode.get() == "modify":
+                edit_bar.pack(fill="x", pady=(0, 8), after=options)
+        mode.trace_add("write", show_mode_options)
+        batch_backup = tk.BooleanVar(value=self.backup_var.get())
         def choose_batch_folder():
             directory = filedialog.askdirectory(parent=dialog, title="选择副本输出文件夹")
             if directory:
                 self.output_dir.set(directory)
-        ttk.Button(output_bar, text="选择", command=choose_batch_folder).pack(side="left")
-        ttk.Label(output_bar, text="命名").pack(side="left", padx=(12, 0))
-        ttk.Entry(output_bar, textvariable=self.output_template, width=18).pack(side="left", padx=4)
-        ttk.Label(output_bar, text="{name}=原文件名", style="Muted.TLabel").pack(side="left")
+        self._output_settings(frame, batch_backup, choose_batch_folder)
         table = ttk.Treeview(frame, columns=("file", "status", "detail"), show="headings")
         table.heading("file", text="文件")
         table.heading("status", text="状态")
@@ -507,14 +564,11 @@ class Editor(_TkBase):
         rows = {}
         paths = []
 
-        footer = ttk.Frame(dialog, padding=(16, 0, 16, 16))
-        footer.pack(fill="x")
-        batch_backup = tk.BooleanVar(value=self.backup_var.get())
-        ttk.Label(footer, text="保存前备份：").pack(side="left")
-        ttk.Radiobutton(footer, text="是", variable=batch_backup, value=True).pack(side="left", padx=(2, 8))
-        ttk.Radiobutton(footer, text="否", variable=batch_backup, value=False).pack(side="left")
+        footer = ttk.Frame(dialog, padding=(16, 7, 16, 12))
+        footer.pack(fill="x", side="bottom")
+        frame.pack(fill="both", expand=True)
         progress = ttk.Label(footer, text="等待添加文件", style="Muted.TLabel")
-        progress.pack(side="left", padx=16)
+        progress.pack(side="left")
         close_button = ttk.Button(footer, text="关闭", command=dialog.destroy)
         close_button.pack(side="right")
         start_button = ttk.Button(footer, text="开始处理", style="Accent.TButton")
