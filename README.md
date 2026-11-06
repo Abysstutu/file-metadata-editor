@@ -6,16 +6,16 @@
 
 打开 [GitHub Releases](https://github.com/Abysstutu/file-metadata-editor/releases)，选择适合的 Windows x64 包：
 
-- **v3.x（推荐）**：新版功能与拖放清除，支持旧版 Office；应用运行组件随 EXE 提供。
+- **v3.3（推荐）**：支持拖放、批量处理和旧版 Office，并随包提供所需运行组件。
 - **v2.0**：支持旧版 `.doc`、`.xls`、`.ppt`，内置 Java 运行时。
 - **v1.0**：仅支持新版 Office 格式与 PDF。
 
-新版本会同时提供两个构建：
+v3.3 提供两个 Windows x64 下载包：
 
 - `FileMetadataEditor-vX.Y-Windows-x64.exe`：单文件便携版，下载后可直接运行，但首次启动需要解包，启动速度较慢。
 - `FileMetadataEditor-vX.Y-Windows-x64-FastStart.zip`：快速启动版，解压后运行文件夹中的 EXE；不要单独移动 EXE，需保留同目录运行组件。
 
-按本仓库当前构建流程生成的两种版本均无需单独安装 Python、Java、FFmpeg 或 ffprobe。请以 Release 说明确认具体版本包含的组件。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
+v3.3 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe。其他版本包含的组件请以对应 Release 说明为准。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
 
 ## 支持范围
 
@@ -52,11 +52,9 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
-## 自动构建
+## 第三方组件
 
-推送形如 `v3.1` 的版本标签后，GitHub Actions 会自动在 Windows x64 runner 上检查代码、生成精简 Java 运行时、校验并集成 FFmpeg/ffprobe、构建并冒烟测试单文件 EXE 与快速启动 ZIP，然后创建对应的 GitHub Release 并附上两个下载包。也可以手动发布已有 Release，工作流会构建并上传附件；手动触发构建则只保存为 14 天有效的 Actions 构建产物。
-
-视频运行组件采用 [BtbN 的 LGPL shared 构建](https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-10-31-12-59)，打包脚本固定压缩包 SHA-256；发布包内保留其 `LICENSE.txt`。对应的 [FFmpeg 源码](https://github.com/FFmpeg/FFmpeg)和[构建脚本](https://github.com/BtbN/FFmpeg-Builds)可在各自仓库查看。
+视频运行组件采用 [BtbN 的 LGPL shared 版本](https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-10-31-12-59)，下载包内保留其 `LICENSE.txt`。对应的 [FFmpeg 源码](https://github.com/FFmpeg/FFmpeg)和[打包脚本](https://github.com/BtbN/FFmpeg-Builds)可在各自仓库查看。
 
 ## 项目结构
 
@@ -68,7 +66,6 @@ scripts/               Windows 视频运行组件下载与校验脚本
 requirements.txt       源码运行依赖
 run.cmd                Windows 快捷启动脚本
 high-dpi.manifest      Windows 高 DPI 清单
-.github/workflows/     自动检查、打包与 Release 上传
 ```
 
 仓库不保存构建输出或源码 ZIP；源码以 Git 历史维护，可执行文件发布在 Releases。
