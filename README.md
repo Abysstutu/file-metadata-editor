@@ -34,6 +34,10 @@ v3.3 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe�
 
 Word `.doc/.docx/.docm/.dotx/.dotm` 的 18 个预设字段及命名自定义属性已完成写入、读回和清除测试。详见 [Word 能力表](docs/word-capability/metadata-capability-report.md) 和 [50 份样本回归结果](docs/word-corpus-results.json)。这两份报告对应当前源码，尚未包含在上方 v3.3 下载包中。
 
+Excel `.xls/.xlsx/.xlsm/.xltx/.xltm` 也完成相同范围的验证。详见 [Excel 能力表](docs/excel-capability/metadata-capability-report.md) 和 [50 份样本回归结果](docs/excel-corpus-results.json)。
+
+PowerPoint 的 `.ppt/.pptx/.pptm/.potx/.potm/.ppsx/.ppsm` 完成 [逐项能力测试](docs/powerpoint-capability/metadata-capability-report.md) 和 [70 份样本回归](docs/powerpoint-corpus-results.json)。图片常用 EXIF 字段支持中文标题、作者、描述与 GPS 坐标；MP3 描述、视频专辑和类型已可修改。PDF Info 自定义键、Markdown 顶层普通标量自定义键也支持逐项编辑。查看 [35 种格式的完整能力表](docs/full-capability/metadata-capability-report.md) 与 [350 份样本的清除回归结果](docs/full-regression/regression-summary.json)。这些改动对应当前源码，尚未打包进 v3.3 下载版。
+
 输出可选择直接修改原文件，或另存副本；副本可指定输出文件夹和命名规则，`{name}` 表示原文件名。若目标文件名已存在，程序会自动添加序号，避免覆盖。勾选“保存前备份”后，可在本次运行中使用“撤销上次操作”；也可打开目标文件后使用“从备份恢复”选择历史 `.metadata-backup` 文件。恢复前程序还会保存当前状态的备份。关闭备份选项的操作不能通过“撤销上次操作”恢复。
 
 ## 限制与故障处理
@@ -43,6 +47,7 @@ Word `.doc/.docx/.docm/.dotx/.dotm` 的 18 个预设字段及命名自定义属�
 - 只读或被 Office/WPS、同步软件占用时，程序可能无法覆盖原件；请关闭占用程序，或使用自动生成的可写副本。
 - 从源码运行时，视频功能需要系统提供 `ffmpeg` 和 `ffprobe`；也可分别设置 `FILE_METADATA_FFMPEG`、`FILE_METADATA_FFPROBE` 为可执行文件路径。发布版已内置，无需另外安装。
 - WAV 支持 RIFF INFO 标签的读取、编辑和清除。清除后的验证会排除旧式 Office 编辑时长的零值、TIFF 必需的结构标签以及视频容器自动生成的技术标识。
+- ZIP 文件数量和成员信息是压缩包结构，不提供属性编辑；图片非预设 EXIF、音视频流级与厂商私有标签仍需按具体格式继续适配。Markdown 多行及嵌套 YAML 保留原样，不支持逐项修改。
 - 修改后可重新打开文件检查属性；不同软件可能缓存属性，关闭后重开或复制到本地目录再确认。
 
 ## 从源码运行

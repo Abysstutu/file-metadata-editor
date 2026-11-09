@@ -1,0 +1,286 @@
+{
+  "samples": 70,
+  "passed": 70,
+  "results": [
+    {
+      "file": "potm_01_无元数据.potm",
+      "status": "passed"
+    },
+    {
+      "file": "potm_02_无元数据.potm",
+      "status": "passed"
+    },
+    {
+      "file": "potm_03_无元数据.potm",
+      "status": "passed"
+    },
+    {
+      "file": "potm_04_无元数据.potm",
+      "status": "passed"
+    },
+    {
+      "file": "potm_05_无元数据.potm",
+      "status": "passed"
+    },
+    {
+      "file": "potx_01_无元数据.potx",
+      "status": "passed"
+    },
+    {
+      "file": "potx_02_无元数据.potx",
+      "status": "passed"
+    },
+    {
+      "file": "potx_03_无元数据.potx",
+      "status": "passed"
+    },
+    {
+      "file": "potx_04_无元数据.potx",
+      "status": "passed"
+    },
+    {
+      "file": "potx_05_无元数据.potx",
+      "status": "passed"
+    },
+    {
+      "file": "ppsm_01_无元数据.ppsm",
+      "status": "passed"
+    },
+    {
+      "file": "ppsm_02_无元数据.ppsm",
+      "status": "passed"
+    },
+    {
+      "file": "ppsm_03_无元数据.ppsm",
+      "status": "passed"
+    },
+    {
+      "file": "ppsm_04_无元数据.ppsm",
+      "status": "passed"
+    },
+    {
+      "file": "ppsm_05_无元数据.ppsm",
+      "status": "passed"
+    },
+    {
+      "file": "ppsx_01_无元数据.ppsx",
+      "status": "passed"
+    },
+    {
+      "file": "ppsx_02_无元数据.ppsx",
+      "status": "passed"
+    },
+    {
+      "file": "ppsx_03_无元数据.ppsx",
+      "status": "passed"
+    },
+    {
+      "file": "ppsx_04_无元数据.ppsx",
+      "status": "passed"
+    },
+    {
+      "file": "ppsx_05_无元数据.ppsx",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_01_无元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_02_无元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_03_无元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_04_无元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_05_无元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "pptm_01_无元数据.pptm",
+      "status": "passed"
+    },
+    {
+      "file": "pptm_02_无元数据.pptm",
+      "status": "passed"
+    },
+    {
+      "file": "pptm_03_无元数据.pptm",
+      "status": "passed"
+    },
+    {
+      "file": "pptm_04_无元数据.pptm",
+      "status": "passed"
+    },
+    {
+      "file": "pptm_05_无元数据.pptm",
+      "status": "passed"
+    },
+    {
+      "file": "pptx_01_无元数据.pptx",
+      "status": "passed"
+    },
+    {
+      "file": "pptx_02_无元数据.pptx",
+      "status": "passed"
+    },
+    {
+      "file": "pptx_03_无元数据.pptx",
+      "status": "passed"
+    },
+    {
+      "file": "pptx_04_无元数据.pptx",
+      "status": "passed"
+    },
+    {
+      "file": "pptx_05_无元数据.pptx",
+      "status": "passed"
+    },
+    {
+      "file": "potm_01_有元数据.potm",
+      "status": "passed"
+    },
+    {
+      "file": "potm_02_有元数据.potm",
+      "status": "passed"
+    },
+    {
+      "file": "potm_03_有元数据.potm",
+      "status": "passed"
+    },
+    {
+      "file": "potm_04_有元数据.potm",
+      "status": "passed"
+    },
+    {
+      "file": "potm_05_有元数据.potm",
+      "status": "passed"
+    },
+    {
+      "file": "potx_01_有元数据.potx",
+      "status": "passed"
+    },
+    {
+      "file": "potx_02_有元数据.potx",
+      "status": "passed"
+    },
+    {
+      "file": "potx_03_有元数据.potx",
+      "status": "passed"
+    },
+    {
+      "file": "potx_04_有元数据.potx",
+      "status": "passed"
+    },
+    {
+      "file": "potx_05_有元数据.potx",
+      "status": "passed"
+    },
+    {
+      "file": "ppsm_01_有元数据.ppsm",
+      "status": "passed"
+    },
+    {
+      "file": "ppsm_02_有元数据.ppsm",
+      "status": "passed"
+    },
+    {
+      "file": "ppsm_03_有元数据.ppsm",
+      "status": "passed"
+    },
+    {
+      "file": "ppsm_04_有元数据.ppsm",
+      "status": "passed"
+    },
+    {
+      "file": "ppsm_05_有元数据.ppsm",
+      "status": "passed"
+    },
+    {
+      "file": "ppsx_01_有元数据.ppsx",
+      "status": "passed"
+    },
+    {
+      "file": "ppsx_02_有元数据.ppsx",
+      "status": "passed"
+    },
+    {
+      "file": "ppsx_03_有元数据.ppsx",
+      "status": "passed"
+    },
+    {
+      "file": "ppsx_04_有元数据.ppsx",
+      "status": "passed"
+    },
+    {
+      "file": "ppsx_05_有元数据.ppsx",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_01_有元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_02_有元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_03_有元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_04_有元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_05_有元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "pptm_01_有元数据.pptm",
+      "status": "passed"
+    },
+    {
+      "file": "pptm_02_有元数据.pptm",
+      "status": "passed"
+    },
+    {
+      "file": "pptm_03_有元数据.pptm",
+      "status": "passed"
+    },
+    {
+      "file": "pptm_04_有元数据.pptm",
+      "status": "passed"
+    },
+    {
+      "file": "pptm_05_有元数据.pptm",
+      "status": "passed"
+    },
+    {
+      "file": "pptx_01_有元数据.pptx",
+      "status": "passed"
+    },
+    {
+      "file": "pptx_02_有元数据.pptx",
+      "status": "passed"
+    },
+    {
+      "file": "pptx_03_有元数据.pptx",
+      "status": "passed"
+    },
+    {
+      "file": "pptx_04_有元数据.pptx",
+      "status": "passed"
+    },
+    {
+      "file": "pptx_05_有元数据.pptx",
+      "status": "passed"
+    }
+  ]
+}

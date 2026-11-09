@@ -1,0 +1,206 @@
+{
+  "samples": 50,
+  "passed": 50,
+  "results": [
+    {
+      "file": "jpeg_01_无元数据.jpeg",
+      "status": "passed"
+    },
+    {
+      "file": "jpeg_02_无元数据.jpeg",
+      "status": "passed"
+    },
+    {
+      "file": "jpeg_03_无元数据.jpeg",
+      "status": "passed"
+    },
+    {
+      "file": "jpeg_04_无元数据.jpeg",
+      "status": "passed"
+    },
+    {
+      "file": "jpeg_05_无元数据.jpeg",
+      "status": "passed"
+    },
+    {
+      "file": "jpg_01_无元数据.jpg",
+      "status": "passed"
+    },
+    {
+      "file": "jpg_02_无元数据.jpg",
+      "status": "passed"
+    },
+    {
+      "file": "jpg_03_无元数据.jpg",
+      "status": "passed"
+    },
+    {
+      "file": "jpg_04_无元数据.jpg",
+      "status": "passed"
+    },
+    {
+      "file": "jpg_05_无元数据.jpg",
+      "status": "passed"
+    },
+    {
+      "file": "tif_01_无元数据.tif",
+      "status": "passed"
+    },
+    {
+      "file": "tif_02_无元数据.tif",
+      "status": "passed"
+    },
+    {
+      "file": "tif_03_无元数据.tif",
+      "status": "passed"
+    },
+    {
+      "file": "tif_04_无元数据.tif",
+      "status": "passed"
+    },
+    {
+      "file": "tif_05_无元数据.tif",
+      "status": "passed"
+    },
+    {
+      "file": "tiff_01_无元数据.tiff",
+      "status": "passed"
+    },
+    {
+      "file": "tiff_02_无元数据.tiff",
+      "status": "passed"
+    },
+    {
+      "file": "tiff_03_无元数据.tiff",
+      "status": "passed"
+    },
+    {
+      "file": "tiff_04_无元数据.tiff",
+      "status": "passed"
+    },
+    {
+      "file": "tiff_05_无元数据.tiff",
+      "status": "passed"
+    },
+    {
+      "file": "webp_01_无元数据.webp",
+      "status": "passed"
+    },
+    {
+      "file": "webp_02_无元数据.webp",
+      "status": "passed"
+    },
+    {
+      "file": "webp_03_无元数据.webp",
+      "status": "passed"
+    },
+    {
+      "file": "webp_04_无元数据.webp",
+      "status": "passed"
+    },
+    {
+      "file": "webp_05_无元数据.webp",
+      "status": "passed"
+    },
+    {
+      "file": "jpeg_01_有元数据.jpeg",
+      "status": "passed"
+    },
+    {
+      "file": "jpeg_02_有元数据.jpeg",
+      "status": "passed"
+    },
+    {
+      "file": "jpeg_03_有元数据.jpeg",
+      "status": "passed"
+    },
+    {
+      "file": "jpeg_04_有元数据.jpeg",
+      "status": "passed"
+    },
+    {
+      "file": "jpeg_05_有元数据.jpeg",
+      "status": "passed"
+    },
+    {
+      "file": "jpg_01_有元数据.jpg",
+      "status": "passed"
+    },
+    {
+      "file": "jpg_02_有元数据.jpg",
+      "status": "passed"
+    },
+    {
+      "file": "jpg_03_有元数据.jpg",
+      "status": "passed"
+    },
+    {
+      "file": "jpg_04_有元数据.jpg",
+      "status": "passed"
+    },
+    {
+      "file": "jpg_05_有元数据.jpg",
+      "status": "passed"
+    },
+    {
+      "file": "tif_01_有元数据.tif",
+      "status": "passed"
+    },
+    {
+      "file": "tif_02_有元数据.tif",
+      "status": "passed"
+    },
+    {
+      "file": "tif_03_有元数据.tif",
+      "status": "passed"
+    },
+    {
+      "file": "tif_04_有元数据.tif",
+      "status": "passed"
+    },
+    {
+      "file": "tif_05_有元数据.tif",
+      "status": "passed"
+    },
+    {
+      "file": "tiff_01_有元数据.tiff",
+      "status": "passed"
+    },
+    {
+      "file": "tiff_02_有元数据.tiff",
+      "status": "passed"
+    },
+    {
+      "file": "tiff_03_有元数据.tiff",
+      "status": "passed"
+    },
+    {
+      "file": "tiff_04_有元数据.tiff",
+      "status": "passed"
+    },
+    {
+      "file": "tiff_05_有元数据.tiff",
+      "status": "passed"
+    },
+    {
+      "file": "webp_01_有元数据.webp",
+      "status": "passed"
+    },
+    {
+      "file": "webp_02_有元数据.webp",
+      "status": "passed"
+    },
+    {
+      "file": "webp_03_有元数据.webp",
+      "status": "passed"
+    },
+    {
+      "file": "webp_04_有元数据.webp",
+      "status": "passed"
+    },
+    {
+      "file": "webp_05_有元数据.webp",
+      "status": "passed"
+    }
+  ]
+}

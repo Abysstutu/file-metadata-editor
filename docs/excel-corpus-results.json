@@ -1,0 +1,206 @@
+{
+  "samples": 50,
+  "passed": 50,
+  "results": [
+    {
+      "file": "xls_01_无元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_02_无元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_03_无元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_04_无元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_05_无元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xlsm_01_无元数据.xlsm",
+      "status": "passed"
+    },
+    {
+      "file": "xlsm_02_无元数据.xlsm",
+      "status": "passed"
+    },
+    {
+      "file": "xlsm_03_无元数据.xlsm",
+      "status": "passed"
+    },
+    {
+      "file": "xlsm_04_无元数据.xlsm",
+      "status": "passed"
+    },
+    {
+      "file": "xlsm_05_无元数据.xlsm",
+      "status": "passed"
+    },
+    {
+      "file": "xlsx_01_无元数据.xlsx",
+      "status": "passed"
+    },
+    {
+      "file": "xlsx_02_无元数据.xlsx",
+      "status": "passed"
+    },
+    {
+      "file": "xlsx_03_无元数据.xlsx",
+      "status": "passed"
+    },
+    {
+      "file": "xlsx_04_无元数据.xlsx",
+      "status": "passed"
+    },
+    {
+      "file": "xlsx_05_无元数据.xlsx",
+      "status": "passed"
+    },
+    {
+      "file": "xltm_01_无元数据.xltm",
+      "status": "passed"
+    },
+    {
+      "file": "xltm_02_无元数据.xltm",
+      "status": "passed"
+    },
+    {
+      "file": "xltm_03_无元数据.xltm",
+      "status": "passed"
+    },
+    {
+      "file": "xltm_04_无元数据.xltm",
+      "status": "passed"
+    },
+    {
+      "file": "xltm_05_无元数据.xltm",
+      "status": "passed"
+    },
+    {
+      "file": "xltx_01_无元数据.xltx",
+      "status": "passed"
+    },
+    {
+      "file": "xltx_02_无元数据.xltx",
+      "status": "passed"
+    },
+    {
+      "file": "xltx_03_无元数据.xltx",
+      "status": "passed"
+    },
+    {
+      "file": "xltx_04_无元数据.xltx",
+      "status": "passed"
+    },
+    {
+      "file": "xltx_05_无元数据.xltx",
+      "status": "passed"
+    },
+    {
+      "file": "xls_01_有元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_02_有元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_03_有元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_04_有元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_05_有元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xlsm_01_有元数据.xlsm",
+      "status": "passed"
+    },
+    {
+      "file": "xlsm_02_有元数据.xlsm",
+      "status": "passed"
+    },
+    {
+      "file": "xlsm_03_有元数据.xlsm",
+      "status": "passed"
+    },
+    {
+      "file": "xlsm_04_有元数据.xlsm",
+      "status": "passed"
+    },
+    {
+      "file": "xlsm_05_有元数据.xlsm",
+      "status": "passed"
+    },
+    {
+      "file": "xlsx_01_有元数据.xlsx",
+      "status": "passed"
+    },
+    {
+      "file": "xlsx_02_有元数据.xlsx",
+      "status": "passed"
+    },
+    {
+      "file": "xlsx_03_有元数据.xlsx",
+      "status": "passed"
+    },
+    {
+      "file": "xlsx_04_有元数据.xlsx",
+      "status": "passed"
+    },
+    {
+      "file": "xlsx_05_有元数据.xlsx",
+      "status": "passed"
+    },
+    {
+      "file": "xltm_01_有元数据.xltm",
+      "status": "passed"
+    },
+    {
+      "file": "xltm_02_有元数据.xltm",
+      "status": "passed"
+    },
+    {
+      "file": "xltm_03_有元数据.xltm",
+      "status": "passed"
+    },
+    {
+      "file": "xltm_04_有元数据.xltm",
+      "status": "passed"
+    },
+    {
+      "file": "xltm_05_有元数据.xltm",
+      "status": "passed"
+    },
+    {
+      "file": "xltx_01_有元数据.xltx",
+      "status": "passed"
+    },
+    {
+      "file": "xltx_02_有元数据.xltx",
+      "status": "passed"
+    },
+    {
+      "file": "xltx_03_有元数据.xltx",
+      "status": "passed"
+    },
+    {
+      "file": "xltx_04_有元数据.xltx",
+      "status": "passed"
+    },
+    {
+      "file": "xltx_05_有元数据.xltx",
+      "status": "passed"
+    }
+  ]
+}

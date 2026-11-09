@@ -77,7 +77,8 @@ def edit_probe(source: Path, key: str, kind: str):
             write_selected(before, {key: requested})
             actual = engine.load(str(path)).values.get(key, "")
             expected = (engine.iso_display(requested) if kind == "Office" and key in {"created", "modified", "lastPrinted"}
-                        else "20270203040506" if kind == "PDF" and key in {"created", "modified"} else requested)
+                        else "20270203040506" if kind == "PDF" and key in {"created", "modified"}
+                        else ", ".join(str(float(part.strip())) for part in requested.split(",")) if key == "gps" else requested)
             edit = "是"
             note = "写入与单项清除均读回成功"
             if actual != expected:
@@ -124,50 +125,21 @@ def custom_probe(source: Path, name: str):
             custom = dict(meta.custom)
             custom[name] = "能力测试-自定义"
             if meta.kind == "Legacy Office": engine.write_legacy(meta, values, False, custom)
+            elif meta.kind == "PDF": engine.write_pdf(meta, values, False, custom)
+            elif meta.kind == "Markdown": engine.write_markdown(meta, values, custom=custom)
             else: engine.write_office(meta, values, custom, False)
             if engine.load(str(path)).custom.get(name) != "能力测试-自定义":
                 return "否", "未验证", "写入后未读回新值"
             custom.pop(name)
             if meta.kind == "Legacy Office": engine.write_legacy(engine.load(str(path)), values, False, custom)
+            elif meta.kind == "PDF": engine.write_pdf(engine.load(str(path)), values, False, custom)
+            elif meta.kind == "Markdown": engine.write_markdown(engine.load(str(path)), values, custom=custom)
             else: engine.write_office(engine.load(str(path)), values, custom, False)
             if name not in engine.load(str(path)).custom:
                 return "是", "是", "自定义属性修改与删除均成功"
             return "是", "否", "自定义属性未删除"
         except Exception as exc:
             return "否", "未验证", f"{type(exc).__name__}: {exc}"[:300]
-
-
-def injected_custom_probe(source: Path, kind: str):
-    """Check arbitrary keys that the existing corpus does not contain."""
-    with tempfile.TemporaryDirectory() as scratch:
-        path = Path(scratch) / source.name
-        shutil.copy2(source, path)
-        if kind == "Markdown":
-            content = path.read_text(encoding="utf-8-sig")
-            if not content.startswith("---\n"):
-                raise ValueError("Markdown sample has no Front Matter")
-            path.write_text(content.replace("---\n", "---\ncodex_custom_probe: original\n", 1), encoding="utf-8")
-            if engine.load(str(path)).values.get("codex_custom_probe") != "original":
-                raise ValueError("Arbitrary Front Matter key was not read")
-            write_selected(engine.load(str(path)), {"title": "Probe"})
-            preserved = engine.load(str(path)).values.get("codex_custom_probe") == "original"
-            engine.clear_embedded_properties(engine.load(str(path)))
-            cleared = not engine.load(str(path)).values.get("codex_custom_probe")
-        else:
-            from pypdf import PdfReader, PdfWriter
-
-            writer = PdfWriter()
-            writer.clone_document_from_reader(PdfReader(path))
-            writer.add_metadata({"/CodexCustomProbe": "original"})
-            with path.open("wb") as stream:
-                writer.write(stream)
-            if (PdfReader(path).metadata or {}).get("/CodexCustomProbe") != "original":
-                raise ValueError("PDF custom Info key was not added")
-            write_selected(engine.load(str(path)), {"title": "Probe"})
-            preserved = (PdfReader(path).metadata or {}).get("/CodexCustomProbe") == "original"
-            engine.clear_embedded_properties(engine.load(str(path)))
-            cleared = "/CodexCustomProbe" not in (PdfReader(path).metadata or {})
-        return preserved, cleared
 
 
 def sample_value(values):
@@ -194,7 +166,9 @@ def render_markdown(rows, summary, path: Path):
         "- 全量清除：测试集副本经重新读取验证；此列只对样本中出现的属性提供证据。",
         "- 文件系统创建、修改时间单独列出，它们不是可清空的内嵌属性。", "",
         "## 主要限制", "",
-        "- 本清单仅证明当前样本中的字段。Word 正文统计、修订历史、批注和厂商私有流等未作为可编辑元数据处理。", "",
+        "- 本清单仅证明当前样本中的字段。正文或表格内容、修订历史、批注和厂商私有流等未作为可编辑元数据处理。",
+        "- 自定义属性逐项编辑覆盖 Office 命名属性、PDF Info 键和 Markdown 顶层普通标量；图片非预设 EXIF、音视频流级及厂商私有标签仍需专门适配。",
+        "- ZIP 文件数量及成员技术属性由压缩包结构决定，保持只读；改变这些值需要改变压缩包内容。", "",
         "## 各格式字段明细", "",
     ]
     grouped = defaultdict(list)
@@ -239,30 +213,19 @@ def run(corpus: Path, output: Path, suffixes: set[str] | None = None):
                          "可单项清除": clear, "可全量清除": "否" if key == "file_count" else "是（已测 10 份）",
                          "实测": note})
         for name, values in sorted(record["custom"].items()):
-            if kind in {"Office", "Legacy Office"}:
+            if kind in {"Office", "Legacy Office", "PDF", "Markdown"}:
                 edit, clear, note = custom_probe(source, name)
             else:
                 edit, clear, note = "否", "否", "当前界面不提供自定义字段逐项编辑"
             rows.append({"格式": suffix, "类别": "自定义字段", "字段": name, "键": name,
                          "样本值": sample_value(values), "可编辑": edit,
                          "可单项清除": clear, "可全量清除": "是（已测 10 份）", "实测": note})
-        if kind in {"Office", "Legacy Office"}:
-            name = "能力测试自定义"
+        if kind in {"Office", "Legacy Office", "PDF", "Markdown"}:
+            name = "/CodexCustomProbe" if kind == "PDF" else "codex_custom_probe" if kind == "Markdown" else "能力测试自定义"
             edit, clear, note = custom_probe(source, name)
             rows.append({"格式": suffix, "类别": "自定义字段（注入测试）", "字段": name, "键": name,
                          "样本值": "原样本无此字段", "可编辑": edit,
                          "可单项清除": clear, "可全量清除": "是（已测 10 份）", "实测": note})
-        if kind in {"Markdown", "PDF"}:
-            name = "codex_custom_probe" if kind == "Markdown" else "/CodexCustomProbe"
-            try:
-                preserved, cleared = injected_custom_probe(source, kind)
-                note = f"注入测试：常规编辑保留={'是' if preserved else '否'}；全量清除={'是' if cleared else '否'}"
-            except Exception as exc:
-                preserved = cleared = False
-                note = f"注入测试失败：{type(exc).__name__}: {exc}"[:300]
-            rows.append({"格式": suffix, "类别": "自定义字段（注入测试）", "字段": name, "键": name,
-                         "样本值": "original", "可编辑": "否（界面未提供）", "可单项清除": "否",
-                         "可全量清除": "是（注入测试）" if cleared else "未通过", "实测": note})
         if kind == "Archive":
             with zipfile.ZipFile(source) as archive:
                 member = archive.infolist()[0] if archive.infolist() else None

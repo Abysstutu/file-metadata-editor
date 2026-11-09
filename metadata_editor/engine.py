@@ -13,6 +13,7 @@ import sys
 import tempfile
 import zipfile
 import json
+from fractions import Fraction
 from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -122,34 +123,74 @@ def read_markdown(path: Path) -> Metadata:
     result = Metadata(path, "Markdown")
     result.values.update(filesystem_values(path))
     frontmatter, _, _ = _markdown_parts(path)
+    known = {key for key, _ in MARKDOWN_FIELDS}
     for line in frontmatter.splitlines():
-        if not line.strip() or line.lstrip().startswith("#") or ":" not in line:
+        if not line.strip() or line[0].isspace() or line.lstrip().startswith("#") or ":" not in line:
             continue
         key, value = line.split(":", 1)
         key, value = key.strip(), value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
         result.values[key] = value
+        if key not in known:
+            result.custom[key] = value
     return result
 
 
-def write_markdown(meta: Metadata, values: dict[str, str], clear: bool = False) -> None:
-    text = meta.path.read_text(encoding="utf-8-sig")
+def write_markdown(meta: Metadata, values: dict[str, str], clear: bool = False,
+                   custom: dict[str, str] | None = None) -> None:
     frontmatter, body, _ = _markdown_parts(meta.path)
     if clear:
-        meta.path.write_text(body, encoding="utf-8")
+        with meta.path.open("w", encoding="utf-8", newline="") as output:
+            output.write(body)
         return
-    known = {key for key, _ in MARKDOWN_FIELDS}
     fields = [(key, values.get(key, "").strip()) for key, _ in MARKDOWN_FIELDS]
-    for line in frontmatter.splitlines():
-        if ":" not in line or line.lstrip().startswith("#"):
+    known = {key for key, _ in MARKDOWN_FIELDS}
+    requested = meta.custom if custom is None else custom
+    for key, value in requested.items():
+        if not key or key in known or ":" in key or "\n" in key:
+            raise ValueError(f"无效的 Markdown 自定义属性名称：{key}")
+        if "\n" in value:
+            raise ValueError(f"暂不支持修改多行 YAML 属性：{key}")
+        fields.append((key, value))
+    desired = dict(fields)
+    newline = "\r\n" if "\r\n" in frontmatter else "\n"
+    original_lines = frontmatter.splitlines(keepends=True)
+    kept = []
+    seen = set()
+    for index, line in enumerate(original_lines):
+        if not line.strip() or line[0].isspace() or line.lstrip().startswith("#") or ":" not in line:
+            kept.append(line)
             continue
-        key, value = line.split(":", 1)
-        key, value = key.strip(), value.strip()
-        if key and key not in known:
-            fields.append((key, value))
-    lines = ["---\n"] + [f"{key}: {value}\n" for key, value in fields if value] + ["---\n"]
-    meta.path.write_text("".join(lines) + body, encoding="utf-8")
+        key, original = line.split(":", 1)
+        key = key.strip()
+        if not key or (key not in desired and key not in meta.custom):
+            kept.append(line)
+            continue
+        if key not in desired:
+            nested = index + 1 < len(original_lines) and original_lines[index + 1][:1].isspace()
+            if nested or original.strip().startswith(("|", ">", "[", "{")):
+                raise ValueError(f"暂不支持逐项删除嵌套或多行 YAML 属性：{key}")
+            continue
+        seen.add(key)
+        wanted = desired[key]
+        previous = meta.values.get(key, "") if key in known else meta.custom.get(key, "")
+        if wanted == previous:
+            kept.append(line)
+            continue
+        nested = index + 1 < len(original_lines) and original_lines[index + 1][:1].isspace()
+        if nested or original.strip().startswith(("|", ">", "[", "{")):
+            raise ValueError(f"暂不支持逐项修改嵌套或多行 YAML 属性：{key}")
+        if wanted:
+            scalar = json.dumps(wanted, ensure_ascii=False) if any(char in wanted for char in ":#") else wanted
+            kept.append(f"{key}: {scalar}{newline}")
+    for key, value in fields:
+        if key in seen or not value:
+            continue
+        scalar = json.dumps(value, ensure_ascii=False) if any(char in value for char in ":#") else value
+        kept.append(f"{key}: {scalar}{newline}")
+    with meta.path.open("w", encoding="utf-8", newline="") as output:
+        output.write(f"---{newline}" + "".join(kept) + f"---{newline}" + body)
 
 
 def read_image(path: Path) -> Metadata:
@@ -159,7 +200,11 @@ def read_image(path: Path) -> Metadata:
     with image_api.open(path) as image:
         exif = image.getexif()
         names = {exif_tags.TAGS.get(key, str(key)): value for key, value in exif.items()} if exif_tags else {}
-        result.values.update({"title": str(names.get("ImageDescription", "")), "author": str(names.get("Artist", "")), "description": str(names.get("XPComment", "")), "created": str(names.get("DateTimeOriginal", "")), "gps": str(names.get("GPSInfo", ""))})
+        result.values.update({"title": _xp_text(exif.get(40091)) or str(names.get("ImageDescription", "")),
+                              "author": _xp_text(exif.get(40093)) or str(names.get("Artist", "")),
+                              "description": _xp_text(exif.get(40092)) or str(names.get("UserComment", "")),
+                              "created": str(names.get("DateTimeOriginal", "")),
+                              "gps": _gps_text(exif.get_ifd(34853))})
         result.values["_all_exif"] = "\\n".join(
             f"{exif_tags.TAGS.get(key, key) if exif_tags else key}: {value}"
             for key, value in exif.items()
@@ -170,6 +215,49 @@ def read_image(path: Path) -> Metadata:
     return result
 
 
+def _xp_text(value: object) -> str:
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value).decode("utf-16le", "replace").rstrip("\0")
+    return ""
+
+
+def _gps_text(gps: dict) -> str:
+    try:
+        def coordinate(tag: int, ref: int) -> float:
+            degrees, minutes, seconds = (float(part) for part in gps[tag])
+            value = degrees + minutes / 60 + seconds / 3600
+            return -value if gps.get(ref, "").upper() in {"S", "W"} else value
+        latitude, longitude = coordinate(2, 1), coordinate(4, 3)
+        return ", ".join(f"{value:.6f}".rstrip("0").rstrip(".") for value in (latitude, longitude))
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return ""
+
+
+def _gps_ifd(value: str) -> dict:
+    from PIL.TiffImagePlugin import IFDRational
+
+    parts = [part.strip() for part in value.split(",")]
+    if len(parts) != 2:
+        raise ValueError("GPS 格式应为“纬度, 经度”，例如 39.90, 116.40。")
+    try:
+        latitude, longitude = (float(part) for part in parts)
+    except ValueError as exc:
+        raise ValueError("GPS 坐标必须是数字。") from exc
+    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        raise ValueError("GPS 纬度范围为 -90~90，经度范围为 -180~180。")
+
+    def dms(number: float):
+        absolute = abs(number)
+        degrees = int(absolute)
+        minutes = int((absolute - degrees) * 60)
+        seconds = Fraction((absolute - degrees - minutes / 60) * 3600).limit_denominator(1000000)
+        return (IFDRational(degrees, 1), IFDRational(minutes, 1),
+                IFDRational(seconds.numerator, seconds.denominator))
+
+    return {1: "S" if latitude < 0 else "N", 2: dms(latitude),
+            3: "W" if longitude < 0 else "E", 4: dms(longitude)}
+
+
 def write_image(meta: Metadata, values: dict[str, str], clear: bool = False) -> None:
     image_api, _ = _load_pillow()
     with image_api.open(meta.path) as image:
@@ -178,13 +266,22 @@ def write_image(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
             for tag in list(exif):
                 del exif[tag]
         else:
-            tags = {"title": 270, "author": 315, "description": 37510, "created": 36867}
-            for key, tag in tags.items():
+            tags = {"title": (40091, 270), "author": (40093, 315), "description": (40092, 37510)}
+            for key, (xp_tag, ascii_tag) in tags.items():
                 value = values.get(key, "").strip()
-                if value: exif[tag] = value
-                elif tag in exif: del exif[tag]
-            if "gps" in values and not values["gps"].strip() and 34853 in exif:
-                del exif[34853]
+                if value:
+                    exif[xp_tag] = value.encode("utf-16le") + b"\0\0"
+                    if value.isascii() and key != "description": exif[ascii_tag] = value
+                    elif ascii_tag in exif: del exif[ascii_tag]
+                else:
+                    for tag in (xp_tag, ascii_tag):
+                        if tag in exif: del exif[tag]
+            created = values.get("created", "").strip()
+            if created: exif[36867] = created
+            elif 36867 in exif: del exif[36867]
+            gps = values.get("gps", "").strip()
+            if gps: exif[34853] = _gps_ifd(gps)
+            elif 34853 in exif: del exif[34853]
         tmp = meta.path.with_name(f".{meta.path.name}.metadata-tmp")
         image.save(tmp, exif=exif.tobytes(), format=image.format)
     os.replace(tmp, meta.path)
@@ -306,6 +403,17 @@ def read_audio(path: Path) -> Metadata:
             for key, value in (audio.tags or {}).items()
             if str(value).strip()
         )
+    if path.suffix.lower() == ".mp3":
+        from mutagen.id3 import ID3, ID3NoHeaderError
+
+        try:
+            comments = ID3(path).getall("COMM")
+        except ID3NoHeaderError:
+            comments = []
+        if comments:
+            result.values["description"] = str(comments[0].text[0]) if comments[0].text else ""
+            result.values["_all_tags"] = "\n".join(filter(None, [result.values.get("_all_tags", ""),
+                *(f"COMM ({frame.lang}/{frame.desc}): {', '.join(frame.text)}" for frame in comments)]))
     if path.suffix.lower() == ".wav":
         info = _wav_info(path)
         for key, tag in WAV_INFO_FIELDS.items():
@@ -339,12 +447,22 @@ def write_audio(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
         audio.delete()
         return
     if audio.tags is None: audio.add_tags()
-    mapping = {"title": "title", "author": "artist", "album": "album", "date": "date", "genre": "genre", "description": "comment"}
+    mapping = {"title": "title", "author": "artist", "album": "album", "date": "date", "genre": "genre"}
+    if meta.path.suffix.lower() != ".mp3": mapping["description"] = "comment"
     for source, target in mapping.items():
         value = "" if clear else values.get(source, "").strip()
         if value: audio[target] = [value]
         elif target in audio: del audio[target]
     audio.save()
+    if meta.path.suffix.lower() == ".mp3":
+        from mutagen.id3 import COMM, ID3
+
+        description = values.get("description", "").strip()
+        if description != meta.values.get("description", ""):
+            tags = ID3(meta.path)
+            tags.delall("COMM")
+            if description: tags.add(COMM(encoding=3, lang="eng", desc="", text=description))
+            tags.save(meta.path)
 
 
 def _media_executable(name: str) -> str:
@@ -392,8 +510,10 @@ def read_video(path: Path) -> Metadata:
         probe = json.loads(completed.stdout)
         format_info = probe.get("format", {})
         tags = format_info.get("tags", {})
-        for source, target in {"title": "title", "artist": "author", "comment": "description", "date": "date"}.items():
-            result.values[target] = str(tags.get(source, tags.get(source.title(), "")))
+        normalized_tags = {str(key).lower(): value for key, value in tags.items()}
+        for source, target in {"title": "title", "artist": "author", "comment": "description", "date": "date",
+                               "album": "album", "genre": "genre"}.items():
+            result.values[target] = str(normalized_tags.get(source, ""))
         all_tags = []
         scopes = [("容器", tags)]
         scopes.extend((f"音视频流 {item.get('index', index)}", item.get("tags", {})) for index, item in enumerate(probe.get("streams", [])))
@@ -412,7 +532,8 @@ def write_video(meta: Metadata, values: dict[str, str], clear: bool = False) -> 
     command = [_ffmpeg(), "-y", "-i", str(meta.path), "-map", "0", "-c", "copy"]
     if clear: command += ["-map_metadata", "-1", "-map_metadata:s", "-1", "-map_chapters", "-1"]
     else:
-        for key, tag in (("title", "title"), ("author", "artist"), ("description", "comment"), ("date", "date")):
+        for key, tag in (("title", "title"), ("author", "artist"), ("description", "comment"),
+                         ("date", "date"), ("album", "album"), ("genre", "genre")):
             if key in values:
                 command += ["-metadata", f"{tag}={values[key].strip()}"]
     command += [str(tmp)]
@@ -627,6 +748,9 @@ def read_pdf(path: Path) -> Metadata:
     for key, pdf_key in mapping.items():
         value = str((reader.metadata or {}).get(pdf_key, ""))
         result.values[key] = value.replace("D:", "") if key in {"created", "modified"} else value
+    known_keys = set(mapping.values())
+    result.custom.update({str(key): str(value) for key, value in (reader.metadata or {}).items()
+                          if str(key) not in known_keys})
     # Word/WPS exports often retain their visible metadata in the XMP packet.
     try:
         xmp = reader.xmp_metadata
@@ -649,7 +773,7 @@ def _pdf_date(value: str) -> str:
     return "D:" + (digits[:14] if digits else dt.datetime.now().strftime("%Y%m%d%H%M%S"))
 
 
-def write_pdf(meta: Metadata, values: dict[str, str], clear: bool) -> None:
+def write_pdf(meta: Metadata, values: dict[str, str], clear: bool, custom: dict[str, str] | None = None) -> None:
     from pypdf import PdfReader, PdfWriter
     from pypdf.generic import DictionaryObject
     from pypdf.xmp import XmpInformation
@@ -668,6 +792,14 @@ def write_pdf(meta: Metadata, values: dict[str, str], clear: bool) -> None:
     # clone_document_from_reader keeps the source /Info object. Replacing it is
     # essential: add_metadata alone cannot remove old keys from that object.
     info = {} if clear else {str(key): str(value) for key, value in (reader.metadata or {}).items()}
+    if not clear:
+        requested = meta.custom if custom is None else custom
+        for key in list(info):
+            if key not in pairs and key not in requested: info.pop(key)
+        for key, value in requested.items():
+            if not key.startswith("/") or key in pairs:
+                raise ValueError(f"PDF 自定义属性名称必须以 / 开头，且不能覆盖预设字段：{key}")
+            info[key] = value
     for pdf_key, key in pairs.items():
         value = "" if clear else values.get(key, "")
         if value:

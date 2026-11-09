@@ -236,7 +236,7 @@ class Editor(_TkBase):
         props = self.tree.insert("", "end", text=f"{self.meta.kind} 属性", open=True)
         fields = PDF_FIELDS if self.meta.kind == "PDF" else MARKDOWN_FIELDS if self.meta.kind == "Markdown" else IMAGE_FIELDS if self.meta.kind == "Image" else ZIP_FIELDS if self.meta.kind == "Archive" else MEDIA_FIELDS if self.meta.kind in {"Audio", "Video"} else FIELDS
         for key, label in fields: self.tree.insert(props, "end", text=label, values=(self.meta.values.get(key, ""),))
-        if self.meta.kind in {"Office", "Legacy Office"}:
+        if self.meta.kind in {"Office", "Legacy Office", "PDF", "Markdown"}:
             custom_node = self.tree.insert("", "end", text="自定义属性", open=True)
             for key, value in self.meta.custom.items(): self.tree.insert(custom_node, "end", text=key, values=(value,))
         self.vars = {}
@@ -244,12 +244,14 @@ class Editor(_TkBase):
         fields = PDF_FIELDS if self.meta.kind == "PDF" else MARKDOWN_FIELDS if self.meta.kind == "Markdown" else IMAGE_FIELDS if self.meta.kind == "Image" else ZIP_FIELDS if self.meta.kind == "Archive" else MEDIA_FIELDS if self.meta.kind in {"Audio", "Video"} else FIELDS
         groups = [("来源与描述", [x for x in fields if x[0] not in {"created", "modified", "lastPrinted", "totalTime"}]), ("文档元数据时间", [x for x in fields if x[0] in {"created", "modified", "lastPrinted", "totalTime"}])]
         for title, fields in groups: self._section(title, fields)
-        if self.meta.kind in {"Office", "Legacy Office"}:
+        if self.meta.kind in {"Office", "Legacy Office", "PDF", "Markdown"}:
             box = ttk.Labelframe(self.form, text=" 自定义属性（每行：名称 = 值） ", style="Card.TLabelframe", padding=10); box.pack(fill="x", pady=(0, 12))
             self.custom_text = tk.Text(box, height=5, font=("Consolas", 10), relief="solid", borderwidth=1)
             self.custom_text.pack(fill="x"); self.custom_text.insert("1.0", "\n".join(f"{k} = {v}" for k, v in self.meta.custom.items()))
-        elif self.meta.kind == "Markdown":
-            ttk.Label(self.form, text="Markdown 元数据使用 YAML Front Matter 保存；没有时保存会自动创建，清除会移除整个 Front Matter。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+            if self.meta.kind == "PDF":
+                ttk.Label(self.form, text="PDF 自定义 Info 键以 / 开头；加密或已签名 PDF 不可修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+            elif self.meta.kind == "Markdown":
+                ttk.Label(self.form, text="Markdown 属性保存在 YAML Front Matter；多行和嵌套字段会保留，但暂不支持逐项修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
         elif self.meta.kind == "Image":
             ttk.Label(self.form, text="图片编辑 EXIF 常用字段；PNG 不含 EXIF 时不会强行写入。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
         elif self.meta.kind == "Archive":
@@ -258,8 +260,6 @@ class Editor(_TkBase):
             ttk.Label(self.form, text="音频标签使用 Mutagen 写入。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
         elif self.meta.kind == "Video":
             ttk.Label(self.form, text="视频标签使用 FFmpeg 无损封装复制写入，处理时间取决于文件大小。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
-        else:
-            ttk.Label(self.form, text="PDF 会重写元数据保存。加密或已签名 PDF 将拒绝修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
         self._register_drop_targets(self.form)
 
     def _section(self, title, fields, readonly=False):
@@ -383,12 +383,12 @@ class Editor(_TkBase):
             try:
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
                 elif meta.kind == "Legacy Office": write_legacy(meta, values, False, self._custom())
-                elif meta.kind == "Markdown": write_markdown(meta, values)
+                elif meta.kind == "Markdown": write_markdown(meta, values, custom=self._custom())
                 elif meta.kind == "Image": write_image(meta, values)
                 elif meta.kind == "Archive": write_zip(meta, values)
                 elif meta.kind == "Audio": write_audio(meta, values)
                 elif meta.kind == "Video": write_video(meta, values)
-                else: write_pdf(meta, values, False)
+                else: write_pdf(meta, values, False, self._custom())
             except PermissionError:
                 if is_copy: raise
                 copy = self._copy_target(meta, "保存", "已修改属性", "Windows 拒绝替换原文件；它可能仍被其他程序占用")
@@ -397,12 +397,12 @@ class Editor(_TkBase):
                 saved_backup = backup(meta.path) if self.backup_var.get() else None
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
                 elif meta.kind == "Legacy Office": write_legacy(meta, values, False, self._custom())
-                elif meta.kind == "Markdown": write_markdown(meta, values)
+                elif meta.kind == "Markdown": write_markdown(meta, values, custom=self._custom())
                 elif meta.kind == "Image": write_image(meta, values)
                 elif meta.kind == "Archive": write_zip(meta, values)
                 elif meta.kind == "Audio": write_audio(meta, values)
                 elif meta.kind == "Video": write_video(meta, values)
-                else: write_pdf(meta, values, False)
+                else: write_pdf(meta, values, False, self._custom())
             set_filesystem_times(meta.path, values["filesystem_created"], values["filesystem_modified"])
             self.undo_history = [(meta.path, saved_backup)] if saved_backup else []
             self.open(str(meta.path))

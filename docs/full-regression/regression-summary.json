@@ -1,0 +1,18 @@
+{
+  "total": 350,
+  "by_check": {
+    "read": {
+      "pass": 350
+    },
+    "clear": {
+      "pass": 350
+    },
+    "verification": {
+      "pass": 350
+    },
+    "content": {
+      "pass": 350
+    }
+  },
+  "failures": []
+}

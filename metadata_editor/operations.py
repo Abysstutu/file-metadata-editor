@@ -71,7 +71,7 @@ FIELD_SETS = {
     "Markdown": MARKDOWN_FIELDS, "Image": IMAGE_FIELDS,
     "Archive": ZIP_FIELDS, "Audio": MEDIA_FIELDS, "Video": MEDIA_FIELDS,
 }
-READ_ONLY = {"Archive": {"file_count"}, "Video": {"album", "genre"}}
+READ_ONLY = {"Archive": {"file_count"}}
 CATEGORIES = {
     "身份与来源": {"author", "creator", "lastModifiedBy", "application", "company", "manager", "producer"},
     "标题与描述": {"title", "subject", "keywords", "category", "description", "contentStatus", "album", "genre", "tags", "comment"},
@@ -95,7 +95,7 @@ def changed_values(before: Metadata, after: Metadata, keys: set[str]) -> list[tu
     labels = dict(FIELD_SETS[before.kind])
     changes = [(labels.get(key, key), before.values.get(key, ""), after.values.get(key, ""))
                for key in keys if before.values.get(key, "") != after.values.get(key, "")]
-    if before.kind in {"Office", "Legacy Office"} and "__custom__" in keys:
+    if before.kind in {"Office", "Legacy Office", "PDF", "Markdown"} and "__custom__" in keys:
         for key in sorted(set(before.custom) | set(after.custom)):
             old, new = before.custom.get(key, ""), after.custom.get(key, "")
             if old != new:
@@ -121,9 +121,9 @@ def write_selected(meta: Metadata, updates: dict[str, str]) -> Metadata:
     elif meta.kind == "Legacy Office":
         write_legacy(meta, values, False, meta.custom)
     elif meta.kind == "PDF":
-        write_pdf(meta, values, False)
+        write_pdf(meta, values, False, meta.custom)
     elif meta.kind == "Markdown":
-        write_markdown(meta, values)
+        write_markdown(meta, values, custom=meta.custom)
     elif meta.kind == "Image":
         write_image(meta, values)
     elif meta.kind == "Archive":

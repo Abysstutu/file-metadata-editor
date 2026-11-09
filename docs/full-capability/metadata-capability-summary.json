@@ -1,0 +1,11 @@
+{
+  "formats": 35,
+  "samples_read": 350,
+  "sample_read_failures": [],
+  "rows": 567,
+  "preset_edit_results": {
+    "是": 406,
+    "否": 1
+  },
+  "failed_probes": []
+}
