@@ -236,7 +236,7 @@ class Editor(_TkBase):
         props = self.tree.insert("", "end", text=f"{self.meta.kind} 属性", open=True)
         fields = PDF_FIELDS if self.meta.kind == "PDF" else MARKDOWN_FIELDS if self.meta.kind == "Markdown" else IMAGE_FIELDS if self.meta.kind == "Image" else ZIP_FIELDS if self.meta.kind == "Archive" else MEDIA_FIELDS if self.meta.kind in {"Audio", "Video"} else FIELDS
         for key, label in fields: self.tree.insert(props, "end", text=label, values=(self.meta.values.get(key, ""),))
-        if self.meta.kind == "Office":
+        if self.meta.kind in {"Office", "Legacy Office"}:
             custom_node = self.tree.insert("", "end", text="自定义属性", open=True)
             for key, value in self.meta.custom.items(): self.tree.insert(custom_node, "end", text=key, values=(value,))
         self.vars = {}
@@ -244,12 +244,10 @@ class Editor(_TkBase):
         fields = PDF_FIELDS if self.meta.kind == "PDF" else MARKDOWN_FIELDS if self.meta.kind == "Markdown" else IMAGE_FIELDS if self.meta.kind == "Image" else ZIP_FIELDS if self.meta.kind == "Archive" else MEDIA_FIELDS if self.meta.kind in {"Audio", "Video"} else FIELDS
         groups = [("来源与描述", [x for x in fields if x[0] not in {"created", "modified", "lastPrinted", "totalTime"}]), ("文档元数据时间", [x for x in fields if x[0] in {"created", "modified", "lastPrinted", "totalTime"}])]
         for title, fields in groups: self._section(title, fields)
-        if self.meta.kind == "Office":
+        if self.meta.kind in {"Office", "Legacy Office"}:
             box = ttk.Labelframe(self.form, text=" 自定义属性（每行：名称 = 值） ", style="Card.TLabelframe", padding=10); box.pack(fill="x", pady=(0, 12))
             self.custom_text = tk.Text(box, height=5, font=("Consolas", 10), relief="solid", borderwidth=1)
             self.custom_text.pack(fill="x"); self.custom_text.insert("1.0", "\n".join(f"{k} = {v}" for k, v in self.meta.custom.items()))
-        elif self.meta.kind == "Legacy Office":
-            ttk.Label(self.form, text="旧版 Office 使用 Apache POI 属性流兼容层。创建内容时间等字段暂不支持单独修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
         elif self.meta.kind == "Markdown":
             ttk.Label(self.form, text="Markdown 元数据使用 YAML Front Matter 保存；没有时保存会自动创建，清除会移除整个 Front Matter。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
         elif self.meta.kind == "Image":
@@ -384,7 +382,7 @@ class Editor(_TkBase):
             values = {key: var.get().strip() for key, var in self.vars.items()}
             try:
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
-                elif meta.kind == "Legacy Office": write_legacy(meta, values, False)
+                elif meta.kind == "Legacy Office": write_legacy(meta, values, False, self._custom())
                 elif meta.kind == "Markdown": write_markdown(meta, values)
                 elif meta.kind == "Image": write_image(meta, values)
                 elif meta.kind == "Archive": write_zip(meta, values)
@@ -398,7 +396,7 @@ class Editor(_TkBase):
                 meta, is_copy = copy, True
                 saved_backup = backup(meta.path) if self.backup_var.get() else None
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
-                elif meta.kind == "Legacy Office": write_legacy(meta, values, False)
+                elif meta.kind == "Legacy Office": write_legacy(meta, values, False, self._custom())
                 elif meta.kind == "Markdown": write_markdown(meta, values)
                 elif meta.kind == "Image": write_image(meta, values)
                 elif meta.kind == "Archive": write_zip(meta, values)

@@ -3,9 +3,13 @@ package com.abysstutu.metadata;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 import org.apache.poi.hpsf.DocumentSummaryInformation;
+import org.apache.poi.hpsf.CustomProperties;
 import org.apache.poi.hpsf.PropertySet;
 import org.apache.poi.hpsf.PropertySetFactory;
 import org.apache.poi.hpsf.SummaryInformation;
@@ -19,8 +23,10 @@ public final class LegacyMetadataHelper {
     private static final List<String> KEYS = Arrays.asList(
         "title", "subject", "creator", "lastModifiedBy", "keywords", "description",
         "revision", "created", "modified", "lastPrinted", "totalTime", "application",
-        "category", "company", "manager", "hyperlinkBase", "contentStatus"
+        "category", "company", "manager", "hyperlinkBase", "contentStatus", "template"
     );
+    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String LINKBASE = "_PID_LINKBASE";
 
     private LegacyMetadataHelper() { }
 
@@ -50,18 +56,22 @@ public final class LegacyMetadataHelper {
             values.put("keywords", string(summary == null ? null : summary.getKeywords()));
             values.put("description", string(summary == null ? null : summary.getComments()));
             values.put("revision", string(summary == null ? null : summary.getRevNumber()));
-            values.put("created", string(summary == null ? null : summary.getCreateDateTime()));
-            values.put("modified", string(summary == null ? null : summary.getLastSaveDateTime()));
-            values.put("lastPrinted", string(summary == null ? null : summary.getLastPrinted()));
-            values.put("totalTime", string(summary == null ? null : summary.getEditTime()));
+            values.put("created", time(summary == null ? null : summary.getCreateDateTime()));
+            values.put("modified", time(summary == null ? null : summary.getLastSaveDateTime()));
+            values.put("lastPrinted", time(summary == null ? null : summary.getLastPrinted()));
+            values.put("totalTime", summary == null || summary.getEditTime() == 0 ? "" : String.valueOf(summary.getEditTime() / 600000000L));
             values.put("application", string(summary == null ? null : summary.getApplicationName()));
             values.put("category", string(docSummary == null ? null : docSummary.getCategory()));
             values.put("company", string(docSummary == null ? null : docSummary.getCompany()));
             values.put("manager", string(docSummary == null ? null : docSummary.getManager()));
-            // HyperlinkBase is not exposed by Apache POI's current HPSF API.
-            values.put("hyperlinkBase", "");
+            CustomProperties custom = docSummary == null ? null : docSummary.getCustomProperties();
+            values.put("hyperlinkBase", string(custom == null ? null : custom.get(LINKBASE)));
             values.put("contentStatus", string(docSummary == null ? null : docSummary.getContentStatus()));
+            values.put("template", string(summary == null ? null : summary.getTemplate()));
             for (String key : KEYS) emit(key, values.getOrDefault(key, ""));
+            if (custom != null) for (String name : custom.nameSet()) {
+                if (!LINKBASE.equals(name)) emit(customKey(name), string(custom.get(name)));
+            }
         }
     }
 
@@ -81,10 +91,48 @@ public final class LegacyMetadataHelper {
             summary.setComments(value(values, "description", clear));
             summary.setRevNumber(value(values, "revision", clear));
             summary.setApplicationName(value(values, "application", clear));
+            summary.setTemplate(value(values, "template", clear));
+            setDate(summary, "created", value(values, "created", clear));
+            setDate(summary, "modified", value(values, "modified", clear));
+            setDate(summary, "lastPrinted", value(values, "lastPrinted", clear));
+            String duration = value(values, "totalTime", clear);
+            String currentDuration = summary.getEditTime() == 0 ? "" : String.valueOf(summary.getEditTime() / 600000000L);
+            if (!duration.equals(currentDuration)) {
+                if (duration.isEmpty()) summary.removeEditTime();
+                else {
+                    long minutes = Long.parseLong(duration);
+                    if (minutes < 0) throw new IllegalArgumentException("总编辑时长不能为负数");
+                    summary.setEditTime(Math.multiplyExact(minutes, 600000000L));
+                }
+            }
             docSummary.setCategory(value(values, "category", clear));
             docSummary.setCompany(value(values, "company", clear));
             docSummary.setManager(value(values, "manager", clear));
             docSummary.setContentStatus(value(values, "contentStatus", clear));
+            if (clear) {
+                if (docSummary.getCustomProperties() != null) docSummary.removeCustomProperties();
+            } else {
+                CustomProperties custom = docSummary.getCustomProperties();
+                if (custom == null) custom = new CustomProperties();
+                String base = value(values, "hyperlinkBase", false);
+                if (base.isEmpty()) custom.remove(LINKBASE);
+                else custom.put(LINKBASE, base);
+                Set<String> requested = new HashSet<>();
+                for (Map.Entry<String, String> entry : values.entrySet()) {
+                    if (!entry.getKey().startsWith("custom:")) continue;
+                    String name = new String(Base64.getUrlDecoder().decode(entry.getKey().substring(7)), StandardCharsets.UTF_8);
+                    if (LINKBASE.equals(name)) continue;
+                    requested.add(name);
+                    if (!Objects.equals(string(custom.get(name)), entry.getValue())) custom.put(name, entry.getValue());
+                }
+                for (String name : new ArrayList<>(custom.nameSet())) {
+                    if (!LINKBASE.equals(name) && !requested.contains(name)) custom.remove(name);
+                }
+                if (custom.isEmpty()) {
+                    if (docSummary.getCustomProperties() != null) docSummary.removeCustomProperties();
+                }
+                else docSummary.setCustomProperties(custom);
+            }
 
             replace(root, SummaryInformation.DEFAULT_STREAM_NAME, summary);
             replace(root, DocumentSummaryInformation.DEFAULT_STREAM_NAME, docSummary);
@@ -127,6 +175,32 @@ public final class LegacyMetadataHelper {
     }
 
     private static String string(Object value) { return value == null ? "" : String.valueOf(value); }
+
+    private static String time(Date value) {
+        return value == null ? "" : TIME.format(value.toInstant().atZone(ZoneId.systemDefault()));
+    }
+
+    private static void setDate(SummaryInformation summary, String key, String value) {
+        Date current;
+        switch (key) {
+            case "created": current = summary.getCreateDateTime(); break;
+            case "modified": current = summary.getLastSaveDateTime(); break;
+            case "lastPrinted": current = summary.getLastPrinted(); break;
+            default: throw new IllegalArgumentException(key);
+        }
+        if (value.equals(time(current))) return;
+        Date date = value.isEmpty() ? null : Date.from(LocalDateTime.parse(value, TIME).atZone(ZoneId.systemDefault()).toInstant());
+        switch (key) {
+            case "created": if (date == null) summary.removeCreateDateTime(); else summary.setCreateDateTime(date); break;
+            case "modified": if (date == null) summary.removeLastSaveDateTime(); else summary.setLastSaveDateTime(date); break;
+            case "lastPrinted": if (date == null) summary.removeLastPrinted(); else summary.setLastPrinted(date); break;
+            default: throw new IllegalArgumentException(key);
+        }
+    }
+
+    private static String customKey(String name) {
+        return "custom:" + Base64.getUrlEncoder().withoutPadding().encodeToString(name.getBytes(StandardCharsets.UTF_8));
+    }
 
     private static Map<String, String> readInput() throws IOException {
         Map<String, String> values = new HashMap<>();

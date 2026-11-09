@@ -548,16 +548,51 @@ def write_office(meta: Metadata, new_values: dict[str, str], custom: dict[str, s
         for key, tag in app_map.items():
             value = "" if clear else new_values.get(key, "")
             _set(app, tag, iso_store(value) if key == "lastPrinted" else value)
-        for child in list(custom_root): custom_root.remove(child)
-        if not clear:
-            for pid, (name, value) in enumerate(custom.items(), start=2):
-                prop = ET.SubElement(custom_root, f"{{{CP}}}property", {"fmtid": "{D5CDD505-2E9C-101B-9397-08002B2CF9AE}", "pid": str(pid), "name": name})
-                ET.SubElement(prop, f"{{{VT}}}lpwstr").text = value
+        existing = {prop.get("name"): prop for prop in custom_root.findall(f"{{{CP}}}property")}
+        for name, prop in existing.items():
+            if clear or name not in custom:
+                custom_root.remove(prop)
+            else:
+                child = next(iter(prop), None)
+                if child is None:
+                    ET.SubElement(prop, f"{{{VT}}}lpwstr").text = custom[name]
+                elif (child.text or "") != custom[name]:
+                    # Keep untouched typed values and IDs; an edited value becomes text.
+                    prop.remove(child)
+                    ET.SubElement(prop, f"{{{VT}}}lpwstr").text = custom[name]
+        used_pids = {int(prop.get("pid", "0")) for prop in custom_root.findall(f"{{{CP}}}property")}
+        for name, value in custom.items() if not clear else ():
+            if name in existing: continue
+            pid = 2
+            while pid in used_pids: pid += 1
+            used_pids.add(pid)
+            prop = ET.SubElement(custom_root, f"{{{CP}}}property", {"fmtid": "{D5CDD505-2E9C-101B-9397-08002B2CF9AE}", "pid": str(pid), "name": name})
+            ET.SubElement(prop, f"{{{VT}}}lpwstr").text = value
         # Read entries before closing the source archive. Windows won't replace a
         # path while its ZipFile handle is open.
         entries = [(item, original.read(item.filename)) for item in original.infolist()
                    if item.filename not in {"docProps/core.xml", "docProps/app.xml", "docProps/custom.xml"}]
         had_custom = "docProps/custom.xml" in original.namelist()
+        if custom and not had_custom:
+            content_type = "application/vnd.openxmlformats-officedocument.custom-properties+xml"
+            relation_type = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties"
+            patched = []
+            for item, contents in entries:
+                if item.filename == "[Content_Types].xml":
+                    root = ET.fromstring(contents)
+                    namespace = "http://schemas.openxmlformats.org/package/2006/content-types"
+                    ET.SubElement(root, f"{{{namespace}}}Override", {"PartName": "/docProps/custom.xml", "ContentType": content_type})
+                    contents = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+                elif item.filename == "_rels/.rels":
+                    root = ET.fromstring(contents)
+                    namespace = "http://schemas.openxmlformats.org/package/2006/relationships"
+                    ids = {rel.get("Id") for rel in root}
+                    index = 1
+                    while f"rId{index}" in ids: index += 1
+                    ET.SubElement(root, f"{{{namespace}}}Relationship", {"Id": f"rId{index}", "Type": relation_type, "Target": "docProps/custom.xml"})
+                    contents = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+                patched.append((item, contents))
+            entries = patched
     descriptor, tmp_name = tempfile.mkstemp(suffix=meta.path.suffix, dir=meta.path.parent)
     os.close(descriptor)
     tmp = Path(tmp_name)
@@ -753,18 +788,27 @@ def read_legacy(path: Path) -> Metadata:
     for line in output.splitlines():
         try:
             key, encoded = line.split("\t", 1)
-            result.values[key] = base64.b64decode(encoded).decode("utf-8")
+            value = base64.b64decode(encoded).decode("utf-8")
+            if key.startswith("custom:"):
+                name = base64.urlsafe_b64decode(key[7:] + "=" * (-len(key[7:]) % 4)).decode("utf-8")
+                result.custom[name] = value
+            else:
+                result.values[key] = value
         except (ValueError, UnicodeDecodeError):
             continue
     return result
 
 
-def write_legacy(meta: Metadata, values: dict[str, str], clear: bool) -> None:
+def write_legacy(meta: Metadata, values: dict[str, str], clear: bool, custom: dict[str, str] | None = None) -> None:
     descriptor, tmp_name = tempfile.mkstemp(suffix=meta.path.suffix, dir=meta.path.parent)
     os.close(descriptor)
     tmp = Path(tmp_name)
     try:
-        _run_legacy_helper("write", str(meta.path), str(tmp), str(clear).lower(), values=values)
+        payload = dict(values)
+        for name, value in (meta.custom if custom is None else custom).items():
+            encoded = base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii").rstrip("=")
+            payload[f"custom:{encoded}"] = value
+        _run_legacy_helper("write", str(meta.path), str(tmp), str(clear).lower(), values=payload)
         os.replace(tmp, meta.path)
     finally:
         if tmp.exists():

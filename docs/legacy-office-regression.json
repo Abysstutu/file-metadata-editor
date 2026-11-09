@@ -1,0 +1,86 @@
+{
+  "samples": 20,
+  "passed": 20,
+  "results": [
+    {
+      "file": "ppt_01_无元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_02_无元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_03_无元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_04_无元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_05_无元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "xls_01_无元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_02_无元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_03_无元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_04_无元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_05_无元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_01_有元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_02_有元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_03_有元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_04_有元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "ppt_05_有元数据.ppt",
+      "status": "passed"
+    },
+    {
+      "file": "xls_01_有元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_02_有元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_03_有元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_04_有元数据.xls",
+      "status": "passed"
+    },
+    {
+      "file": "xls_05_有元数据.xls",
+      "status": "passed"
+    }
+  ]
+}

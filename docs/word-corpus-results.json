@@ -1,0 +1,206 @@
+{
+  "samples": 50,
+  "passed": 50,
+  "results": [
+    {
+      "file": "doc_01_无元数据.doc",
+      "status": "passed"
+    },
+    {
+      "file": "doc_02_无元数据.doc",
+      "status": "passed"
+    },
+    {
+      "file": "doc_03_无元数据.doc",
+      "status": "passed"
+    },
+    {
+      "file": "doc_04_无元数据.doc",
+      "status": "passed"
+    },
+    {
+      "file": "doc_05_无元数据.doc",
+      "status": "passed"
+    },
+    {
+      "file": "docm_01_无元数据.docm",
+      "status": "passed"
+    },
+    {
+      "file": "docm_02_无元数据.docm",
+      "status": "passed"
+    },
+    {
+      "file": "docm_03_无元数据.docm",
+      "status": "passed"
+    },
+    {
+      "file": "docm_04_无元数据.docm",
+      "status": "passed"
+    },
+    {
+      "file": "docm_05_无元数据.docm",
+      "status": "passed"
+    },
+    {
+      "file": "docx_01_无元数据.docx",
+      "status": "passed"
+    },
+    {
+      "file": "docx_02_无元数据.docx",
+      "status": "passed"
+    },
+    {
+      "file": "docx_03_无元数据.docx",
+      "status": "passed"
+    },
+    {
+      "file": "docx_04_无元数据.docx",
+      "status": "passed"
+    },
+    {
+      "file": "docx_05_无元数据.docx",
+      "status": "passed"
+    },
+    {
+      "file": "dotm_01_无元数据.dotm",
+      "status": "passed"
+    },
+    {
+      "file": "dotm_02_无元数据.dotm",
+      "status": "passed"
+    },
+    {
+      "file": "dotm_03_无元数据.dotm",
+      "status": "passed"
+    },
+    {
+      "file": "dotm_04_无元数据.dotm",
+      "status": "passed"
+    },
+    {
+      "file": "dotm_05_无元数据.dotm",
+      "status": "passed"
+    },
+    {
+      "file": "dotx_01_无元数据.dotx",
+      "status": "passed"
+    },
+    {
+      "file": "dotx_02_无元数据.dotx",
+      "status": "passed"
+    },
+    {
+      "file": "dotx_03_无元数据.dotx",
+      "status": "passed"
+    },
+    {
+      "file": "dotx_04_无元数据.dotx",
+      "status": "passed"
+    },
+    {
+      "file": "dotx_05_无元数据.dotx",
+      "status": "passed"
+    },
+    {
+      "file": "doc_01_有元数据.doc",
+      "status": "passed"
+    },
+    {
+      "file": "doc_02_有元数据.doc",
+      "status": "passed"
+    },
+    {
+      "file": "doc_03_有元数据.doc",
+      "status": "passed"
+    },
+    {
+      "file": "doc_04_有元数据.doc",
+      "status": "passed"
+    },
+    {
+      "file": "doc_05_有元数据.doc",
+      "status": "passed"
+    },
+    {
+      "file": "docm_01_有元数据.docm",
+      "status": "passed"
+    },
+    {
+      "file": "docm_02_有元数据.docm",
+      "status": "passed"
+    },
+    {
+      "file": "docm_03_有元数据.docm",
+      "status": "passed"
+    },
+    {
+      "file": "docm_04_有元数据.docm",
+      "status": "passed"
+    },
+    {
+      "file": "docm_05_有元数据.docm",
+      "status": "passed"
+    },
+    {
+      "file": "docx_01_有元数据.docx",
+      "status": "passed"
+    },
+    {
+      "file": "docx_02_有元数据.docx",
+      "status": "passed"
+    },
+    {
+      "file": "docx_03_有元数据.docx",
+      "status": "passed"
+    },
+    {
+      "file": "docx_04_有元数据.docx",
+      "status": "passed"
+    },
+    {
+      "file": "docx_05_有元数据.docx",
+      "status": "passed"
+    },
+    {
+      "file": "dotm_01_有元数据.dotm",
+      "status": "passed"
+    },
+    {
+      "file": "dotm_02_有元数据.dotm",
+      "status": "passed"
+    },
+    {
+      "file": "dotm_03_有元数据.dotm",
+      "status": "passed"
+    },
+    {
+      "file": "dotm_04_有元数据.dotm",
+      "status": "passed"
+    },
+    {
+      "file": "dotm_05_有元数据.dotm",
+      "status": "passed"
+    },
+    {
+      "file": "dotx_01_有元数据.dotx",
+      "status": "passed"
+    },
+    {
+      "file": "dotx_02_有元数据.dotx",
+      "status": "passed"
+    },
+    {
+      "file": "dotx_03_有元数据.dotx",
+      "status": "passed"
+    },
+    {
+      "file": "dotx_04_有元数据.dotx",
+      "status": "passed"
+    },
+    {
+      "file": "dotx_05_有元数据.dotx",
+      "status": "passed"
+    }
+  ]
+}

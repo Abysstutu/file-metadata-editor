@@ -95,7 +95,7 @@ def changed_values(before: Metadata, after: Metadata, keys: set[str]) -> list[tu
     labels = dict(FIELD_SETS[before.kind])
     changes = [(labels.get(key, key), before.values.get(key, ""), after.values.get(key, ""))
                for key in keys if before.values.get(key, "") != after.values.get(key, "")]
-    if before.kind == "Office" and "__custom__" in keys:
+    if before.kind in {"Office", "Legacy Office"} and "__custom__" in keys:
         for key in sorted(set(before.custom) | set(after.custom)):
             old, new = before.custom.get(key, ""), after.custom.get(key, "")
             if old != new:
@@ -119,7 +119,7 @@ def write_selected(meta: Metadata, updates: dict[str, str]) -> Metadata:
     if meta.kind == "Office":
         write_office(meta, values, meta.custom, False)
     elif meta.kind == "Legacy Office":
-        write_legacy(meta, values, False)
+        write_legacy(meta, values, False, meta.custom)
     elif meta.kind == "PDF":
         write_pdf(meta, values, False)
     elif meta.kind == "Markdown":

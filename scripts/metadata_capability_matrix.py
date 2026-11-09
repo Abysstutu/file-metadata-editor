@@ -123,11 +123,13 @@ def custom_probe(source: Path, name: str):
             values = dict(meta.values)
             custom = dict(meta.custom)
             custom[name] = "能力测试-自定义"
-            engine.write_office(meta, values, custom, False)
+            if meta.kind == "Legacy Office": engine.write_legacy(meta, values, False, custom)
+            else: engine.write_office(meta, values, custom, False)
             if engine.load(str(path)).custom.get(name) != "能力测试-自定义":
                 return "否", "未验证", "写入后未读回新值"
             custom.pop(name)
-            engine.write_office(engine.load(str(path)), values, custom, False)
+            if meta.kind == "Legacy Office": engine.write_legacy(engine.load(str(path)), values, False, custom)
+            else: engine.write_office(engine.load(str(path)), values, custom, False)
             if name not in engine.load(str(path)).custom:
                 return "是", "是", "自定义属性修改与删除均成功"
             return "是", "否", "自定义属性未删除"
@@ -189,15 +191,10 @@ def render_markdown(rows, summary, path: Path):
         f"- 样本读取：{summary['samples_read']} 个；失败 {len(summary['sample_read_failures'])} 个。",
         f"- 预设字段按“格式 × 字段”统计：{counts.get('是', 0)} 项写入读回成功，"
         f"{counts.get('部分（仅 ASCII）', 0)} 项仅 ASCII 成功，{counts.get('否', 0)} 项未成功或设计为只读。",
-        "- 全量清除：此前 350 份测试副本均通过重新读取验证；此列只对样本中出现的属性提供证据。",
+        "- 全量清除：测试集副本经重新读取验证；此列只对样本中出现的属性提供证据。",
         "- 文件系统创建、修改时间单独列出，它们不是可清空的内嵌属性。", "",
         "## 主要限制", "",
-        "- `.doc/.xls/.ppt`：创建、修改、打印时间、编辑时长、超链接基址和模板的逐项写入未按输入值读回。",
-        "- `.jpg/.jpeg/.tif/.tiff/.webp`：标题、作者仅 ASCII 写入读回成功；描述和 GPS 未成功。",
-        "- `.mkv`：标题成功；作者、日期、描述未按输入值读回，专辑和类型为只读。",
-        "- `.mp3`：描述写入报错；其他五个预设字段成功。",
-        "- ZIP 只支持压缩包注释；成员时间、压缩方式等技术属性保留。",
-        "- Office Open XML 的样本自定义属性可修改和删除；Markdown、PDF 的任意自定义键可被整体清除，但当前界面不提供逐项编辑。", "",
+        "- 本清单仅证明当前样本中的字段。Word 正文统计、修订历史、批注和厂商私有流等未作为可编辑元数据处理。", "",
         "## 各格式字段明细", "",
     ]
     grouped = defaultdict(list)
@@ -214,11 +211,13 @@ def render_markdown(rows, summary, path: Path):
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def run(corpus: Path, output: Path):
+def run(corpus: Path, output: Path, suffixes: set[str] | None = None):
     output.mkdir(parents=True, exist_ok=True)
     samples = sorted(path for folder in ("有元数据", "无可编辑元数据")
-                     for path in (corpus / folder).iterdir() if path.is_file())
-    tagged = {path.suffix.lower(): path for path in sorted((corpus / "有元数据").iterdir()) if path.is_file()}
+                     for path in (corpus / folder).iterdir() if path.is_file()
+                     and (suffixes is None or path.suffix.lower() in suffixes))
+    tagged = {path.suffix.lower(): path for path in sorted((corpus / "有元数据").iterdir())
+              if path.is_file() and (suffixes is None or path.suffix.lower() in suffixes)}
     observed, failures = inventory(samples)
     rows = []
     for suffix, record in sorted(observed.items()):
@@ -240,12 +239,18 @@ def run(corpus: Path, output: Path):
                          "可单项清除": clear, "可全量清除": "否" if key == "file_count" else "是（已测 10 份）",
                          "实测": note})
         for name, values in sorted(record["custom"].items()):
-            if kind == "Office":
+            if kind in {"Office", "Legacy Office"}:
                 edit, clear, note = custom_probe(source, name)
             else:
                 edit, clear, note = "否", "否", "当前界面不提供自定义字段逐项编辑"
             rows.append({"格式": suffix, "类别": "自定义字段", "字段": name, "键": name,
                          "样本值": sample_value(values), "可编辑": edit,
+                         "可单项清除": clear, "可全量清除": "是（已测 10 份）", "实测": note})
+        if kind in {"Office", "Legacy Office"}:
+            name = "能力测试自定义"
+            edit, clear, note = custom_probe(source, name)
+            rows.append({"格式": suffix, "类别": "自定义字段（注入测试）", "字段": name, "键": name,
+                         "样本值": "原样本无此字段", "可编辑": edit,
                          "可单项清除": clear, "可全量清除": "是（已测 10 份）", "实测": note})
         if kind in {"Markdown", "PDF"}:
             name = "codex_custom_probe" if kind == "Markdown" else "/CodexCustomProbe"
@@ -305,5 +310,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("corpus", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--suffixes", nargs="+", help="Only probe these extensions, such as .doc .docx")
     args = parser.parse_args()
-    raise SystemExit(run(args.corpus, args.output))
+    raise SystemExit(run(args.corpus, args.output, set(args.suffixes) if args.suffixes else None))
