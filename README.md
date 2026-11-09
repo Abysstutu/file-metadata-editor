@@ -6,16 +6,17 @@
 
 打开 [GitHub Releases](https://github.com/Abysstutu/file-metadata-editor/releases)，选择适合的 Windows x64 包：
 
-- **v3.3（推荐）**：支持拖放、批量处理和旧版 Office，并随包提供所需运行组件。
+- **v3.4（推荐）**：增强 Word、Excel、PowerPoint、图片、音视频等格式的元数据编辑，并提供各格式测试报告。
+- **v3.3**：支持拖放、批量处理和旧版 Office，并随包提供所需运行组件。
 - **v2.0**：支持旧版 `.doc`、`.xls`、`.ppt`，内置 Java 运行时。
 - **v1.0**：仅支持新版 Office 格式与 PDF。
 
-v3.3 提供两个 Windows x64 下载包：
+v3.4 提供两个 Windows x64 下载包：
 
 - `FileMetadataEditor-vX.Y-Windows-x64.exe`：单文件便携版，下载后可直接运行，但首次启动需要解包，启动速度较慢。
 - `FileMetadataEditor-vX.Y-Windows-x64-FastStart.zip`：快速启动版，解压后运行文件夹中的 EXE；不要单独移动 EXE，需保留同目录运行组件。
 
-v3.3 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe。其他版本包含的组件请以对应 Release 说明为准。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
+v3.4 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe。其他版本包含的组件请以对应 Release 说明为准。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
 
 ## 支持范围
 
@@ -32,11 +33,11 @@ v3.3 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe�
 
 支持单文件编辑、批量清除、按类别批量清除、批量修改、拖放、保存前备份，以及文件只读或占用时另存为可写副本。清除前可预览将处理的属性，处理后可逐项查看原值和结果；单文件和批量操作都会重新读取文件，区分验证通过、检测到残留和无法验证。批量修改可统一填写标题、作者、关键词，或用文件名作为标题；不同格式不支持的字段会跳过。清除和修改操作会改变文件，请先备份重要文件。
 
-Word `.doc/.docx/.docm/.dotx/.dotm` 的 18 个预设字段及命名自定义属性已完成写入、读回和清除测试。详见 [Word 能力表](docs/word-capability/metadata-capability-report.md) 和 [50 份样本回归结果](docs/word-corpus-results.json)。这两份报告对应当前源码，尚未包含在上方 v3.3 下载包中。
+Word `.doc/.docx/.docm/.dotx/.dotm` 的 18 个预设字段及命名自定义属性已完成写入、读回和清除测试。详见 [Word 能力表](docs/word-capability/metadata-capability-report.md) 和 [50 份样本回归结果](docs/word-corpus-results.json)。
 
 Excel `.xls/.xlsx/.xlsm/.xltx/.xltm` 也完成相同范围的验证。详见 [Excel 能力表](docs/excel-capability/metadata-capability-report.md) 和 [50 份样本回归结果](docs/excel-corpus-results.json)。
 
-PowerPoint 的 `.ppt/.pptx/.pptm/.potx/.potm/.ppsx/.ppsm` 完成 [逐项能力测试](docs/powerpoint-capability/metadata-capability-report.md) 和 [70 份样本回归](docs/powerpoint-corpus-results.json)。图片常用 EXIF 字段支持中文标题、作者、描述与 GPS 坐标；MP3 描述、视频专辑和类型已可修改。PDF Info 自定义键、Markdown 顶层普通标量自定义键也支持逐项编辑。查看 [35 种格式的完整能力表](docs/full-capability/metadata-capability-report.md) 与 [350 份样本的清除回归结果](docs/full-regression/regression-summary.json)。这些改动对应当前源码，尚未打包进 v3.3 下载版。
+PowerPoint 的 `.ppt/.pptx/.pptm/.potx/.potm/.ppsx/.ppsm` 完成 [逐项能力测试](docs/powerpoint-capability/metadata-capability-report.md) 和 [70 份样本回归](docs/powerpoint-corpus-results.json)。图片常用 EXIF 字段支持中文标题、作者、描述与 GPS 坐标；MP3 描述、视频专辑和类型已可修改。PDF Info 自定义键、Markdown 顶层普通标量自定义键也支持逐项编辑。查看 [35 种格式的完整能力表](docs/full-capability/metadata-capability-report.md) 与 [350 份样本的清除回归结果](docs/full-regression/regression-summary.json)。
 
 输出可选择直接修改原文件，或另存副本；副本可指定输出文件夹和命名规则，`{name}` 表示原文件名。若目标文件名已存在，程序会自动添加序号，避免覆盖。勾选“保存前备份”后，可在本次运行中使用“撤销上次操作”；也可打开目标文件后使用“从备份恢复”选择历史 `.metadata-backup` 文件。恢复前程序还会保存当前状态的备份。关闭备份选项的操作不能通过“撤销上次操作”恢复。
 
