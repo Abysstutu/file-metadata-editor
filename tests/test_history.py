@@ -7,7 +7,8 @@ import zipfile
 from pathlib import Path
 
 from metadata_editor.engine import Metadata, clear_embedded_properties, load, write_markdown
-from metadata_editor.history import FileChangedError, append_history, read_history, restore_recorded_metadata
+from metadata_editor.history import (FileChangedError, append_history, delete_history_records,
+                                     read_history, restore_recorded_metadata)
 from metadata_editor.operations import create_output_copy
 
 
@@ -53,6 +54,41 @@ class HistoryTests(unittest.TestCase):
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["result_path"], "A.md")
             self.assertEqual(skipped, 2)
+
+    def test_delete_selected_history_preserves_other_rows_and_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            document = root / "report.md"
+            history = root / "edit-history.jsonl"
+            document.write_text("Keep this file", encoding="utf-8")
+            rows = [{"result_path": f"{index}.md", "source_name": f"{index}.md"} for index in range(3)]
+            history.write_text("".join(json.dumps(row) + "\n" for row in rows) + "{bad\n", encoding="utf-8")
+            self.assertEqual(delete_history_records({1: rows[1]}, history), 1)
+            remaining, skipped = read_history(history)
+            self.assertEqual(remaining, [rows[0], rows[2]])
+            self.assertEqual(skipped, 1)
+            self.assertEqual(document.read_text(encoding="utf-8"), "Keep this file")
+
+    def test_delete_selected_refuses_changed_history(self):
+        with tempfile.TemporaryDirectory() as folder:
+            history = Path(folder) / "edit-history.jsonl"
+            current = {"result_path": "new.md"}
+            history.write_text(json.dumps(current) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "已变化"):
+                delete_history_records({0: {"result_path": "old.md"}}, history)
+            self.assertEqual(read_history(history)[0], [current])
+
+    def test_clear_all_history_then_append_again(self):
+        with tempfile.TemporaryDirectory() as folder:
+            history = Path(folder) / "edit-history.jsonl"
+            history.write_text('{"result_path":"a.md"}\n{bad\n', encoding="utf-8")
+            self.assertEqual(delete_history_records(path=history), 1)
+            self.assertEqual(history.read_text(encoding="utf-8"), "")
+            document = Path(folder) / "new.md"
+            document.write_text("Body", encoding="utf-8")
+            meta = Metadata(document, "Markdown", {"title": "New"}, {})
+            append_history(document, meta, "save", before=meta, destination=history)
+            self.assertEqual(len(read_history(history)[0]), 1)
 
     def test_restore_refuses_changed_file_without_writing(self):
         with tempfile.TemporaryDirectory() as folder:

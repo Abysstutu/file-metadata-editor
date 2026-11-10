@@ -44,7 +44,7 @@ Excel `.xls/.xlsx/.xlsm/.xltx/.xltm` 也完成相同范围的验证。详见 [Ex
 
 PowerPoint 的 `.ppt/.pptx/.pptm/.potx/.potm/.ppsx/.ppsm` 完成 [逐项能力测试](docs/powerpoint-capability/metadata-capability-report.md) 和 [70 份样本回归](docs/powerpoint-corpus-results.json)。图片常用 EXIF 字段支持中文标题、作者、描述与 GPS 坐标；MP3 描述、视频专辑和类型已可修改。PDF Info 自定义键、Markdown 顶层普通标量自定义键也支持逐项编辑。查看 [35 种格式的完整能力表](docs/full-capability/metadata-capability-report.md) 与 [350 份样本的清除回归结果](docs/full-regression/regression-summary.json)。
 
-输出可选择直接修改原文件，或另存副本；副本可指定输出文件夹和命名规则，`{name}` 表示原文件名。若目标文件名已存在，程序会自动添加序号，避免覆盖。开启“记录修改历史”后，每次操作都会在成功写入后向同一个本地 `edit-history.jsonl` 文件追加一条记录，包含操作前和操作后的元数据、结果文件 SHA-256、文件名与路径、验证状态。Windows 默认位置为 `%LOCALAPPDATA%\FileMetadataEditor\edit-history.jsonl`；点击“查看修改历史”可搜索记录、查看前后属性并复制哈希。清除记录可点击“恢复清除前属性”：程序先以清除后的 SHA-256 确认目标文件仍是同一份，再写回清除前的可编辑属性与文件系统时间，并重新读取验证。旧版仅保存操作后数据的历史记录无法恢复；文件若在清除后又被修改，也会因哈希不同而被拒绝。历史记录不包含文件正文，也不能恢复不受本程序编辑能力覆盖的私有或结构属性。程序不再自动创建 `.metadata-backup` 完整文件副本。
+输出可选择直接修改原文件，或另存副本；副本可指定输出文件夹和命名规则，`{name}` 表示原文件名。若目标文件名已存在，程序会自动添加序号，避免覆盖。开启“记录修改历史”后，每次操作都会在成功写入后向同一个本地 `edit-history.jsonl` 文件追加一条记录，包含操作前和操作后的元数据、结果文件 SHA-256、文件名与路径、验证状态。Windows 默认位置为 `%LOCALAPPDATA%\FileMetadataEditor\edit-history.jsonl`；点击“查看修改历史”可搜索记录、查看前后属性并复制哈希，也可删除选中记录或清空全部记录。删除历史不会改动原文件，但被删除的清除记录无法再用于恢复。清除记录可点击“恢复清除前属性”：程序先以清除后的 SHA-256 确认目标文件仍是同一份，再写回清除前的可编辑属性与文件系统时间，并重新读取验证。旧版仅保存操作后数据的历史记录无法恢复；文件若在清除后又被修改，也会因哈希不同而被拒绝。历史记录不包含文件正文，也不能恢复不受本程序编辑能力覆盖的私有或结构属性。程序不再自动创建 `.metadata-backup` 完整文件副本。
 
 ## 限制与故障处理
 

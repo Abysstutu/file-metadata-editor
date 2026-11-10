@@ -9,7 +9,8 @@ from tkinter import filedialog, messagebox, ttk
 from .operations import CATEGORIES, changed_values, editable_fields, selected_fields, write_selected
 from .operations import create_output_copy, output_copy_path
 from .engine import AUDIO_SUFFIXES, FIELDS, IMAGE_FIELDS, LEGACY_SUFFIXES, MARKDOWN_FIELDS, MARKDOWN_SUFFIXES, MEDIA_FIELDS, OFFICE_SUFFIXES, PDF_FIELDS, VIDEO_SUFFIXES, ZIP_FIELDS, ZIP_SUFFIXES, IMAGE_SUFFIXES, Metadata, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, verify_embedded_clear, write_audio, write_image, write_legacy, write_markdown, write_office, write_pdf, write_video, write_zip
-from .history import FileChangedError, append_history, history_path, read_history, restore_recorded_metadata
+from .history import (FileChangedError, append_history, delete_history_records,
+                      history_path, read_history, restore_recorded_metadata)
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -358,6 +359,12 @@ class Editor(_TkBase):
         restore_button = ttk.Button(heading, text="恢复清除前属性", command=lambda: restore_selected())
         restore_button.pack(side="right", padx=(0, 8))
         restore_button.configure(state="disabled")
+        delete_selected_button = ttk.Button(heading, text="删除选中记录", command=lambda: delete_selected())
+        delete_selected_button.pack(side="right", padx=(0, 8))
+        delete_selected_button.configure(state="disabled")
+        delete_all_button = ttk.Button(heading, text="清空全部记录", command=lambda: delete_all())
+        delete_all_button.pack(side="right", padx=(0, 8))
+        delete_all_button.configure(state="disabled")
 
         filter_row = ttk.Frame(frame)
         filter_row.pack(fill="x", pady=(0, 8))
@@ -444,6 +451,7 @@ class Editor(_TkBase):
             selection = table.selection()
             if not selection:
                 restore_button.configure(state="disabled")
+                delete_selected_button.configure(state="disabled")
                 source_label.configure(text="选择上方记录查看详情")
                 result_label.configure(text="")
                 hash_label.configure(text="")
@@ -452,6 +460,7 @@ class Editor(_TkBase):
             if index >= len(visible):
                 return
             record = visible[index]
+            delete_selected_button.configure(state="normal")
             can_restore = (record.get("operation") in {"clear", "batch_clear"}
                            and isinstance(record.get("metadata_before"), dict) and bool(record.get("sha256")))
             restore_button.configure(state="normal" if can_restore else "disabled")
@@ -503,7 +512,46 @@ class Editor(_TkBase):
                 messagebox.showerror("无法读取修改历史", str(exc), parent=window)
                 return
             records[:] = loaded
+            delete_all_button.configure(state="normal" if loaded or skipped else "disabled")
             apply_filter()
+
+        def delete_selected():
+            selection = table.selection()
+            if not selection or int(selection[0]) >= len(visible):
+                return
+            record = visible[int(selection[0])]
+            index = next((i for i, item in enumerate(records) if item is record), None)
+            if index is None:
+                refresh()
+                return
+            if not messagebox.askyesno(
+                "删除选中记录",
+                f"确定删除这条修改历史吗？\n{record.get('result_name') or record.get('result_path', '')}"
+                "\n\n只删除历史记录，不会改动文件。删除后无法再通过这条记录恢复清除前属性。",
+                parent=window,
+            ):
+                return
+            try:
+                delete_history_records({index: record})
+            except (OSError, ValueError) as exc:
+                messagebox.showerror("删除失败", str(exc), parent=window)
+            refresh()
+
+        def delete_all():
+            if not records and not skipped:
+                return
+            if not messagebox.askyesno(
+                "清空全部记录",
+                f"确定清空全部 {len(records)} 条修改历史吗？"
+                "\n\n只删除历史记录，不会改动文件。清空后无法再通过这些记录恢复清除前属性。",
+                parent=window,
+            ):
+                return
+            try:
+                delete_history_records()
+            except (OSError, ValueError) as exc:
+                messagebox.showerror("清空失败", str(exc), parent=window)
+            refresh()
 
         def restore_selected():
             selection = table.selection()

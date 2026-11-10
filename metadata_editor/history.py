@@ -1,4 +1,4 @@
-"""Append-only history of completed metadata edits; never stores file contents."""
+"""Local history of completed metadata edits; never stores file contents."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import hmac
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 
 from .engine import (Metadata, inplace_write_block_reason, load, set_filesystem_times,
@@ -54,6 +55,61 @@ def read_history(path: Path | None = None) -> tuple[list[dict], int]:
                 continue
             records.append(record)
     return records, skipped
+
+
+def delete_history_records(selected: dict[int, dict] | None = None,
+                           path: Path | None = None) -> int:
+    """Delete valid records by their read_history index, or clear the entire log.
+
+    The expected record guards against deleting a different row if the log changed
+    after the history window loaded it. Malformed lines survive a selected deletion.
+    """
+    target = path or history_path()
+    if not target.exists():
+        if selected:
+            raise ValueError("修改历史已变化，请刷新后重试。")
+        return 0
+    original = target.read_bytes()
+    lines = original.splitlines(keepends=True)
+    kept: list[bytes] = []
+    removed = 0
+    valid_index = 0
+    for line in lines:
+        try:
+            record = json.loads(line.decode("utf-8-sig"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            record = None
+        valid = isinstance(record, dict) and bool(record.get("result_path"))
+        if valid:
+            if selected is None:
+                removed += 1
+            elif valid_index in selected:
+                if record != selected[valid_index]:
+                    raise ValueError("修改历史已变化，请刷新后重试。")
+                removed += 1
+            else:
+                kept.append(line)
+            valid_index += 1
+        elif selected is not None:
+            kept.append(line)
+    if selected is not None and removed != len(selected):
+        raise ValueError("修改历史已变化，请刷新后重试。")
+    if not removed and selected is not None:
+        return 0
+    # Replace atomically so an interrupted write cannot leave a partial JSONL file.
+    descriptor, temporary = tempfile.mkstemp(prefix=".edit-history-", suffix=".tmp", dir=target.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.writelines(kept)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if target.read_bytes() != original:
+            raise ValueError("修改历史已变化，请刷新后重试。")
+        os.replace(temporary, target)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return removed
 
 
 def restore_recorded_metadata(record: dict) -> tuple[Metadata, Metadata, bool]:
