@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import datetime as dt
 import shutil
 import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from .operations import CATEGORIES, changed_values, editable_fields, selected_fields, write_selected
-from .operations import create_output_copy, output_copy_path, restore_from_backup
-from .engine import AUDIO_SUFFIXES, FIELDS, IMAGE_FIELDS, LEGACY_SUFFIXES, MARKDOWN_FIELDS, MARKDOWN_SUFFIXES, MEDIA_FIELDS, OFFICE_SUFFIXES, PDF_FIELDS, VIDEO_SUFFIXES, ZIP_FIELDS, ZIP_SUFFIXES, IMAGE_SUFFIXES, Metadata, backup, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, suggested_copy_path, verify_embedded_clear, write_audio, write_image, write_legacy, write_markdown, write_office, write_pdf, write_video, write_zip
+from .operations import create_output_copy, output_copy_path
+from .engine import AUDIO_SUFFIXES, FIELDS, IMAGE_FIELDS, LEGACY_SUFFIXES, MARKDOWN_FIELDS, MARKDOWN_SUFFIXES, MEDIA_FIELDS, OFFICE_SUFFIXES, PDF_FIELDS, VIDEO_SUFFIXES, ZIP_FIELDS, ZIP_SUFFIXES, IMAGE_SUFFIXES, Metadata, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, verify_embedded_clear, write_audio, write_image, write_legacy, write_markdown, write_office, write_pdf, write_video, write_zip
+from .history import FileChangedError, append_history, history_path, read_history, restore_recorded_metadata
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -27,11 +29,10 @@ class Editor(_TkBase):
         self.after_idle(self._fit_initial_window)
         self.meta: Metadata | None = None
         self.vars: dict[str, tk.StringVar] = {}
-        self.backup_var = tk.BooleanVar(value=True)
+        self.history_var = tk.BooleanVar(value=True)
         self.output_mode = tk.StringVar(value="original")
         self.output_dir = tk.StringVar()
         self.output_template = tk.StringVar(value="{name}.已处理")
-        self.undo_history: list[tuple[Path, Path]] = []
         self.path_var = tk.StringVar()
         self._style()
         self._layout()
@@ -55,34 +56,52 @@ class Editor(_TkBase):
     def _style(self):
         style = ttk.Style(self)
         style.theme_use("clam")
-        bg, surface, border, ink, muted, accent = "#f5f5f3", "#ffffff", "#d6d9d8", "#202a30", "#69757b", "#244c63"
+        bg, surface, border, ink, muted, accent = "#f7f7f7", "#ffffff", "#cccccc", "#111111", "#666666", "#111111"
+        disabled = "#999999"
         self.configure(background=bg)
         style.configure("TFrame", background=bg)
         style.configure("Surface.TFrame", background=surface)
         style.configure("TLabel", background=bg, foreground=ink, font=("Microsoft YaHei UI", 9))
         style.configure("Surface.TLabel", background=surface, foreground=ink)
-        style.map("Surface.TLabel", foreground=[("disabled", "#94a3b8")])
+        style.map("TLabel", background=[("disabled", bg)], foreground=[("disabled", disabled)])
+        style.map("Surface.TLabel", background=[("disabled", surface)], foreground=[("disabled", disabled)])
         style.configure("Card.TLabelframe", background=surface, bordercolor=border, relief="solid", borderwidth=1)
         style.configure("Card.TLabelframe.Label", background=bg, foreground=ink, font=("Microsoft YaHei UI", 9, "bold"))
         style.configure("Title.TLabel", background=bg, foreground=ink, font=("Microsoft YaHei UI", 13, "bold"))
         style.configure("Muted.TLabel", background=bg, foreground=muted, font=("Microsoft YaHei UI", 9))
         style.configure("Section.TLabel", background=bg, foreground=ink, font=("Microsoft YaHei UI", 9, "bold"))
         style.configure("TButton", font=("Microsoft YaHei UI", 9), padding=(10, 5), background=surface, foreground=ink, bordercolor=border)
-        style.map("TButton", background=[("active", "#e9edec")], bordercolor=[("focus", accent)])
+        style.map("TButton",
+                  background=[("disabled", surface), ("active", "#eeeeee")],
+                  foreground=[("disabled", disabled)],
+                  bordercolor=[("disabled", border), ("focus", accent)])
         style.configure("Accent.TButton", font=("Microsoft YaHei UI", 9, "bold"), foreground="white", background=accent, padding=(14, 6), bordercolor=accent)
-        style.map("Accent.TButton", background=[("active", "#193b50"), ("disabled", "#aab8bf")], foreground=[("disabled", "#ffffff")])
-        style.configure("Danger.TButton", font=("Microsoft YaHei UI", 9), foreground="#8c3d35", background=surface, bordercolor=border, padding=(10, 5))
-        style.map("Danger.TButton", background=[("active", "#f3eae8")])
-        style.configure("TEntry", padding=(8, 6), fieldbackground=surface, bordercolor=border, lightcolor=border, darkcolor=border)
+        style.map("Accent.TButton", background=[("disabled", accent), ("active", "#333333")],
+                  foreground=[("disabled", disabled)])
+        style.configure("Danger.TButton", font=("Microsoft YaHei UI", 9), foreground=ink, background=surface, bordercolor=border, padding=(10, 5))
+        style.map("Danger.TButton", background=[("disabled", surface), ("active", "#eeeeee")],
+                  foreground=[("disabled", disabled)])
+        style.configure("TEntry", padding=(8, 6), foreground=ink, fieldbackground=surface,
+                        bordercolor=border, lightcolor=border, darkcolor=border)
+        style.map("TEntry", foreground=[("disabled", disabled)],
+                  fieldbackground=[("disabled", surface)], background=[("disabled", surface)],
+                  bordercolor=[("disabled", border)])
+        style.configure("TScrollbar", background="#eeeeee", troughcolor=bg,
+                        bordercolor=border, arrowcolor=ink)
+        style.map("TScrollbar", background=[("disabled", "#eeeeee")],
+                  troughcolor=[("disabled", bg)], arrowcolor=[("disabled", disabled)])
         style.configure("TRadiobutton", background=bg, foreground=ink, font=("Microsoft YaHei UI", 9))
         style.configure("TCheckbutton", background=bg, foreground=ink, font=("Microsoft YaHei UI", 9))
         style.configure("Surface.TRadiobutton", background=surface, foreground=ink)
         style.configure("Surface.TCheckbutton", background=surface, foreground=ink)
+        for name, base in (("TRadiobutton", bg), ("TCheckbutton", bg),
+                           ("Surface.TRadiobutton", surface), ("Surface.TCheckbutton", surface)):
+            style.map(name, background=[("disabled", base)], foreground=[("disabled", disabled)])
         style.configure("Treeview", background=surface, fieldbackground=surface, foreground=ink, rowheight=27, borderwidth=0, font=("Microsoft YaHei UI", 9))
-        style.configure("Treeview.Heading", background="#ebeeec", foreground=ink, font=("Microsoft YaHei UI", 9), relief="flat", padding=(6, 6))
-        style.map("Treeview", background=[("selected", "#dce8ec")], foreground=[("selected", ink)])
+        style.configure("Treeview.Heading", background="#eeeeee", foreground=ink, font=("Microsoft YaHei UI", 9), relief="flat", padding=(6, 6))
+        style.map("Treeview", background=[("selected", ink)], foreground=[("selected", surface)])
 
-    def _output_settings(self, parent, backup_var, browse_command):
+    def _output_settings(self, parent, history_var, browse_command):
         panel = ttk.Labelframe(parent, text=" 输出设置 ", style="Card.TLabelframe", padding=(10, 8))
         panel.pack(fill="x", pady=(0, 7))
 
@@ -91,11 +110,11 @@ class Editor(_TkBase):
         ttk.Label(choices, text="保存方式", width=12, style="Surface.TLabel").pack(side="left")
         ttk.Radiobutton(choices, text="修改原文件", variable=self.output_mode, value="original", style="Surface.TRadiobutton").pack(side="left", padx=(0, 18))
         ttk.Radiobutton(choices, text="另存副本", variable=self.output_mode, value="copy", style="Surface.TRadiobutton").pack(side="left")
-        backup_options = ttk.Frame(choices, style="Surface.TFrame")
-        backup_options.pack(side="right")
-        ttk.Label(backup_options, text="保存前备份", style="Surface.TLabel").pack(side="left", padx=(0, 10))
-        ttk.Radiobutton(backup_options, text="是", variable=backup_var, value=True, style="Surface.TRadiobutton").pack(side="left", padx=(0, 10))
-        ttk.Radiobutton(backup_options, text="否", variable=backup_var, value=False, style="Surface.TRadiobutton").pack(side="left")
+        history_options = ttk.Frame(choices, style="Surface.TFrame")
+        history_options.pack(side="right")
+        ttk.Label(history_options, text="记录修改历史", style="Surface.TLabel").pack(side="left", padx=(0, 10))
+        ttk.Radiobutton(history_options, text="是", variable=history_var, value=True, style="Surface.TRadiobutton").pack(side="left", padx=(0, 10))
+        ttk.Radiobutton(history_options, text="否", variable=history_var, value=False, style="Surface.TRadiobutton").pack(side="left")
 
         name_label = ttk.Label(panel, text="副本命名", width=12, style="Surface.TLabel")
         name_label.grid(row=1, column=0, sticky="w")
@@ -114,7 +133,8 @@ class Editor(_TkBase):
         browse_button.grid(row=2, column=2, sticky="ew", pady=(6, 0))
 
         def update_copy_controls(*_):
-            state = "normal" if self.output_mode.get() == "copy" else "disabled"
+            copy_mode = self.output_mode.get() == "copy"
+            state = "normal" if copy_mode else "disabled"
             for widget in (name_entry, folder_entry, browse_button, name_label, name_hint, folder_label):
                 widget.configure(state=state)
 
@@ -137,7 +157,7 @@ class Editor(_TkBase):
         ttk.Entry(chooser, textvariable=self.path_var).pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(chooser, text="选择文件", command=self.choose).pack(side="left")
         ttk.Button(chooser, text="批量处理", command=self.batch_clear).pack(side="left", padx=(8, 0))
-        self._output_settings(outer, self.backup_var, self._choose_output_dir)
+        self._output_settings(outer, self.history_var, self._choose_output_dir)
         self.drop_hint = ttk.Label(outer, text="单个文件可拖入此窗口；多个文件请使用批量处理", style="Muted.TLabel")
         self.drop_hint.pack(anchor="w", pady=(0, 5))
         body = ttk.Panedwindow(outer, orient="horizontal")
@@ -164,8 +184,7 @@ class Editor(_TkBase):
         status_row = ttk.Frame(footer); status_row.pack(fill="x", pady=(0, 7))
         self.status = ttk.Label(status_row, text="请选择一个文件开始", style="Muted.TLabel"); self.status.pack(side="left")
         action_row = ttk.Frame(footer); action_row.pack(fill="x")
-        ttk.Button(action_row, text="撤销上次操作", command=self.undo_last).pack(side="left")
-        ttk.Button(action_row, text="从备份恢复", command=self.restore_current).pack(side="left", padx=(8, 0))
+        ttk.Button(action_row, text="查看修改历史", command=self.show_history).pack(side="left")
         ttk.Button(action_row, text="清除嵌入属性", style="Danger.TButton", command=self.clear).pack(side="right")
         ttk.Button(action_row, text="保存修改", style="Accent.TButton", command=self.save).pack(side="right", padx=(0, 8))
         # Let the wheel work naturally even when the pointer is above an entry,
@@ -246,20 +265,22 @@ class Editor(_TkBase):
         for title, fields in groups: self._section(title, fields)
         if self.meta.kind in {"Office", "Legacy Office", "PDF", "Markdown"}:
             box = ttk.Labelframe(self.form, text=" 自定义属性（每行：名称 = 值） ", style="Card.TLabelframe", padding=10); box.pack(fill="x", pady=(0, 12))
-            self.custom_text = tk.Text(box, height=5, font=("Consolas", 10), relief="solid", borderwidth=1)
+            self.custom_text = tk.Text(box, height=5, font=("Consolas", 10), relief="solid", borderwidth=1,
+                                       background="#ffffff", foreground="#111111", insertbackground="#111111",
+                                       selectbackground="#111111", selectforeground="#ffffff")
             self.custom_text.pack(fill="x"); self.custom_text.insert("1.0", "\n".join(f"{k} = {v}" for k, v in self.meta.custom.items()))
             if self.meta.kind == "PDF":
-                ttk.Label(self.form, text="PDF 自定义 Info 键以 / 开头；加密或已签名 PDF 不可修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+                ttk.Label(self.form, text="PDF 自定义 Info 键以 / 开头；加密或已签名 PDF 不可修改。", foreground="#666666", background="#ffffff").pack(anchor="w", pady=8)
             elif self.meta.kind == "Markdown":
-                ttk.Label(self.form, text="Markdown 属性保存在 YAML Front Matter；多行和嵌套字段会保留，但暂不支持逐项修改。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+                ttk.Label(self.form, text="Markdown 属性保存在 YAML Front Matter；多行和嵌套字段会保留，但暂不支持逐项修改。", foreground="#666666", background="#ffffff").pack(anchor="w", pady=8)
         elif self.meta.kind == "Image":
-            ttk.Label(self.form, text="图片编辑 EXIF 常用字段；PNG 不含 EXIF 时不会强行写入。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+            ttk.Label(self.form, text="图片编辑 EXIF 常用字段；PNG 不含 EXIF 时不会强行写入。", foreground="#666666", background="#ffffff").pack(anchor="w", pady=8)
         elif self.meta.kind == "Archive":
-            ttk.Label(self.form, text="压缩包支持 ZIP 注释；清除属性会清空注释，不会删除文件内容。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+            ttk.Label(self.form, text="压缩包支持 ZIP 注释；清除属性会清空注释，不会删除文件内容。", foreground="#666666", background="#ffffff").pack(anchor="w", pady=8)
         elif self.meta.kind == "Audio":
-            ttk.Label(self.form, text="音频标签使用 Mutagen 写入。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+            ttk.Label(self.form, text="音频标签使用 Mutagen 写入。", foreground="#666666", background="#ffffff").pack(anchor="w", pady=8)
         elif self.meta.kind == "Video":
-            ttk.Label(self.form, text="视频标签使用 FFmpeg 无损封装复制写入，处理时间取决于文件大小。", foreground="#a16207", background="#ffffff").pack(anchor="w", pady=8)
+            ttk.Label(self.form, text="视频标签使用 FFmpeg 无损封装复制写入，处理时间取决于文件大小。", foreground="#666666", background="#ffffff").pack(anchor="w", pady=8)
         self._register_drop_targets(self.form)
 
     def _section(self, title, fields, readonly=False):
@@ -320,65 +341,225 @@ class Editor(_TkBase):
         copy = self._copy_target(self.meta, action, label, reason)
         return (copy, True) if copy else None
 
-    def undo_last(self):
-        if not self.undo_history:
-            messagebox.showinfo("没有可撤销操作", "本次运行中没有可用的操作备份；请使用“从备份恢复”选择历史备份。", parent=self)
-            return
-        targets = list(self.undo_history)
-        if not messagebox.askyesno("确认撤销", f"将从备份恢复 {len(targets)} 个文件。恢复前会为当前状态另建备份，是否继续？", parent=self):
-            return
-        errors = []
-        restored = []
-        for target, saved in targets:
-            try:
-                if not saved.is_file():
-                    raise FileNotFoundError(f"备份不存在：{saved}")
-                backup(target)
-                restore_from_backup(target, saved)
-                restored.append(target)
-            except Exception as exc:
-                errors.append(f"{target.name}: {exc}")
-        self.undo_history = [(target, saved) for target, saved in targets if target not in restored]
-        if self.meta and self.meta.path in restored:
-            self.open(str(self.meta.path))
-        self.status.configure(text=f"已恢复 {len(restored)} 个文件；失败 {len(errors)} 个")
-        if errors:
-            messagebox.showwarning("部分文件恢复失败", "\n".join(errors[:12]), parent=self)
+    def show_history(self):
+        window = tk.Toplevel(self)
+        window.title("修改历史")
+        self._apply_icon(window)
+        window.geometry("1060x690")
+        window.minsize(720, 480)
+        window.transient(self)
+        frame = ttk.Frame(window, padding=14)
+        frame.pack(fill="both", expand=True)
 
-    def restore_current(self):
-        if not self.meta:
-            messagebox.showinfo("请先选择文件", "先打开要恢复的文件。", parent=self)
-            return
-        target = self.meta.path
-        saved = filedialog.askopenfilename(
-            parent=self, title="选择此文件的 .metadata-backup 备份",
-            initialdir=str(target.parent),
-            filetypes=[("备份文件", f"*.metadata-backup{target.suffix}"), ("所有文件", "*.*")],
-        )
-        if not saved:
-            return
-        source = Path(saved)
-        if not source.name.startswith(f"{target.stem}.") or ".metadata-backup" not in source.stem:
-            messagebox.showerror("备份不匹配", "请选择当前文件的备份，文件名应以原文件名开头。", parent=self)
-            return
-        if not messagebox.askyesno("确认恢复", f"用备份恢复：\n{target}\n\n恢复前会为当前状态另建备份。是否继续？", parent=self):
+        heading = ttk.Frame(frame)
+        heading.pack(fill="x", pady=(0, 10))
+        ttk.Label(heading, text="修改历史", style="Title.TLabel").pack(side="left")
+        ttk.Button(heading, text="刷新", command=lambda: refresh()).pack(side="right")
+        restore_button = ttk.Button(heading, text="恢复清除前属性", command=lambda: restore_selected())
+        restore_button.pack(side="right", padx=(0, 8))
+        restore_button.configure(state="disabled")
+
+        filter_row = ttk.Frame(frame)
+        filter_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(filter_row, text="查找文件", width=10).pack(side="left")
+        query = tk.StringVar()
+        ttk.Entry(filter_row, textvariable=query).pack(side="left", fill="x", expand=True)
+        count_label = ttk.Label(filter_row, style="Muted.TLabel")
+        count_label.pack(side="right", padx=(12, 0))
+
+        table_frame = ttk.Frame(frame)
+        table_frame.pack(fill="both", expand=True)
+        columns = ("time", "operation", "file", "type", "verification", "hash")
+        table = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse", height=10)
+        for key, label, width in (("time", "时间", 155), ("operation", "操作", 88),
+                                  ("file", "结果文件", 260), ("type", "类型", 100),
+                                  ("verification", "验证", 100), ("hash", "SHA-256", 170)):
+            table.heading(key, text=label)
+            table.column(key, width=width, stretch=key in {"file", "hash"})
+        table_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=table.yview)
+        table.configure(yscrollcommand=table_scroll.set)
+        table.pack(side="left", fill="both", expand=True)
+        table_scroll.pack(side="right", fill="y")
+
+        detail = ttk.Labelframe(frame, text=" 记录详情 ", style="Card.TLabelframe", padding=9)
+        detail.pack(fill="both", expand=True, pady=(10, 0))
+        source_label = ttk.Label(detail, text="选择上方记录查看详情", style="Surface.TLabel", wraplength=950)
+        source_label.pack(anchor="w")
+        result_label = ttk.Label(detail, style="Surface.TLabel", wraplength=950)
+        result_label.pack(anchor="w", pady=(4, 0))
+        window.bind("<Configure>", lambda event: (
+            source_label.configure(wraplength=max(400, event.width - 80)),
+            result_label.configure(wraplength=max(400, event.width - 80)),
+        ) if event.widget is window else None)
+        hash_row = ttk.Frame(detail, style="Surface.TFrame")
+        hash_row.pack(fill="x", pady=(4, 8))
+        hash_label = ttk.Label(hash_row, style="Surface.TLabel")
+        hash_label.pack(side="left", fill="x", expand=True)
+
+        def copy_hash():
+            selection = table.selection()
+            if not selection:
+                return
+            index = int(selection[0])
+            if index >= len(visible):
+                return
+            value = visible[index].get("sha256", "")
+            if value:
+                window.clipboard_clear()
+                window.clipboard_append(value)
+
+        ttk.Button(hash_row, text="复制哈希", command=copy_hash).pack(side="right")
+        fields_frame = ttk.Frame(detail, style="Surface.TFrame")
+        fields_frame.pack(fill="both", expand=True)
+        fields = ttk.Treeview(fields_frame, columns=("value",), show="tree headings", height=8)
+        fields.heading("#0", text="属性")
+        fields.heading("value", text="记录值")
+        fields.column("#0", width=210, stretch=False)
+        fields.column("value", width=650)
+        fields_scroll = ttk.Scrollbar(fields_frame, orient="vertical", command=fields.yview)
+        fields.configure(yscrollcommand=fields_scroll.set)
+        fields.pack(side="left", fill="both", expand=True)
+        fields_scroll.pack(side="right", fill="y")
+        note = ttk.Label(frame, text=f"记录文件：{history_path()}  ·  仅清除记录可恢复；校验目标文件的清除后哈希", style="Muted.TLabel")
+        note.pack(anchor="w", pady=(8, 0))
+
+        records: list[dict] = []
+        visible: list[dict] = []
+        skipped = 0
+        operation_names = {"save": "保存", "clear": "清除", "batch_save": "批量修改", "batch_clear": "批量清除", "restore": "恢复属性"}
+        verification_names = {"read_back": "已读回", "passed": "通过", "residual": "有残留", "unreadable": "无法读回", "time_failed": "时间未写入"}
+        field_labels = {key: label for group in (FIELDS, PDF_FIELDS, MARKDOWN_FIELDS, IMAGE_FIELDS, ZIP_FIELDS, MEDIA_FIELDS)
+                        for key, label in group}
+        field_labels.update({"filesystem_created": "文件创建时间", "filesystem_modified": "文件修改时间"})
+
+        def local_time(value):
+            try:
+                return dt.datetime.fromisoformat(value).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            except (TypeError, ValueError):
+                return str(value or "")
+
+        def show_selected(_event=None):
+            for item in fields.get_children():
+                fields.delete(item)
+            selection = table.selection()
+            if not selection:
+                restore_button.configure(state="disabled")
+                source_label.configure(text="选择上方记录查看详情")
+                result_label.configure(text="")
+                hash_label.configure(text="")
+                return
+            index = int(selection[0])
+            if index >= len(visible):
+                return
+            record = visible[index]
+            can_restore = (record.get("operation") in {"clear", "batch_clear"}
+                           and isinstance(record.get("metadata_before"), dict) and bool(record.get("sha256")))
+            restore_button.configure(state="normal" if can_restore else "disabled")
+            source_label.configure(text=f"原文件：{record.get('source_path', record.get('source_name', ''))}")
+            result_label.configure(text=f"结果文件：{record.get('result_path', '')}")
+            hash_label.configure(text=f"SHA-256：{record.get('sha256', '')}")
+            for snapshot_key, phase in (("metadata_before", "操作前（可恢复）"), ("metadata_after", "操作后")):
+                snapshot = record.get(snapshot_key)
+                if not isinstance(snapshot, dict):
+                    fields.insert("", "end", text=phase, values=("旧记录未保存" if snapshot_key == "metadata_before" else "无法读回",))
+                    continue
+                phase_node = fields.insert("", "end", text=phase, open=snapshot_key == "metadata_before")
+                for group, title in (("values", "预设属性"), ("custom", "自定义属性"), ("readonly", "只读属性")):
+                    values = snapshot.get(group, {})
+                    if not isinstance(values, dict) or not values:
+                        continue
+                    parent = fields.insert(phase_node, "end", text=title, open=snapshot_key == "metadata_before")
+                    for key, value in values.items():
+                        label = field_labels.get(key, str(key)) if group == "values" else str(key)
+                        fields.insert(parent, "end", text=label, values=(str(value) if value is not None else "",))
+
+        def apply_filter(*_):
+            visible[:] = [record for record in reversed(records)
+                          if query.get().strip().casefold() in
+                          (str(record.get("source_name", "")) + " " + str(record.get("result_name", "")) + " " +
+                           str(record.get("source_path", "")) + " " + str(record.get("result_path", ""))).casefold()]
+            for item in table.get_children():
+                table.delete(item)
+            for index, record in enumerate(visible):
+                table.insert("", "end", iid=str(index), values=(
+                    local_time(record.get("time_utc")),
+                    operation_names.get(record.get("operation"), record.get("operation", "")),
+                    record.get("result_name", ""), record.get("file_type") or "—",
+                    verification_names.get(record.get("verification"), record.get("verification", "")),
+                    (str(record.get("sha256", ""))[:16] + "…") if record.get("sha256") else "",
+                ))
+            count_label.configure(text=f"{len(visible)} 条" + (f"，跳过损坏记录 {skipped} 条" if skipped else ""))
+            if visible:
+                table.selection_set("0")
+                show_selected()
+            else:
+                show_selected()
+
+        def refresh():
+            nonlocal skipped
+            try:
+                loaded, skipped = read_history()
+            except OSError as exc:
+                messagebox.showerror("无法读取修改历史", str(exc), parent=window)
+                return
+            records[:] = loaded
+            apply_filter()
+
+        def restore_selected():
+            selection = table.selection()
+            if not selection or int(selection[0]) >= len(visible):
+                return
+            record = visible[int(selection[0])]
+            path = Path(str(record.get("result_path", "")))
+            if not messagebox.askyesno(
+                "确认恢复属性",
+                f"将清除前的属性写回：\n{path}\n\n会先核对它是否仍是清除后的那份文件；哈希不符则不会写入。是否继续？",
+                parent=window,
+            ):
+                return
+            try:
+                before_restore, after, changed = restore_recorded_metadata(record)
+            except FileChangedError as exc:
+                messagebox.showwarning("文件已变动", str(exc), parent=window)
+                return
+            except Exception as exc:
+                messagebox.showerror("恢复失败", str(exc), parent=window)
+                return
+            if not changed:
+                messagebox.showinfo("无需恢复", "当前文件的可编辑属性和文件时间已与这条记录一致。", parent=window)
+                return
+            try:
+                append_history(path, after, "restore", before=before_restore, verification="passed")
+            except Exception as exc:
+                messagebox.showwarning("属性已恢复，记录失败", f"属性已写回，但无法追加修改历史：\n{exc}", parent=window)
+            if self.meta and self.meta.path.resolve() == path.resolve():
+                self.meta = after
+                self._render()
+            refresh()
+            messagebox.showinfo("恢复完成", "已写回记录中的可编辑属性，并重新读取验证。", parent=window)
+
+        table.bind("<<TreeviewSelect>>", show_selected)
+        query.trace_add("write", apply_filter)
+        refresh()
+
+    def _record_history(self, before: Metadata, result: Metadata | Path, operation: str,
+                        verification: str = "read_back", parent=None) -> None:
+        if not self.history_var.get():
             return
         try:
-            backup(target)
-            restore_from_backup(target, source)
-            self.open(str(target))
-            self.undo_history = []
-            self.status.configure(text="已从备份恢复，当前状态另有备份可供再次恢复。")
+            append_history(before.path, result, operation, before=before, verification=verification)
         except Exception as exc:
-            messagebox.showerror("恢复失败", str(exc), parent=self)
+            messagebox.showwarning("修改已完成，记录失败", f"文件已修改，但无法写入修改历史：\n{exc}", parent=parent or self)
 
     def save(self):
         if not self.meta: return
         try:
+            before = load(str(self.meta.path))
             target = self._target_for_write("保存", "已修改属性")
             if target is None: return
             meta, is_copy = target
-            saved_backup = backup(meta.path) if self.backup_var.get() else None
+            if not is_copy:
+                meta = before
             values = {key: var.get().strip() for key, var in self.vars.items()}
             try:
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
@@ -394,7 +575,6 @@ class Editor(_TkBase):
                 copy = self._copy_target(meta, "保存", "已修改属性", "Windows 拒绝替换原文件；它可能仍被其他程序占用")
                 if copy is None: return
                 meta, is_copy = copy, True
-                saved_backup = backup(meta.path) if self.backup_var.get() else None
                 if meta.kind == "Office": write_office(meta, values, self._custom(), False)
                 elif meta.kind == "Legacy Office": write_legacy(meta, values, False, self._custom())
                 elif meta.kind == "Markdown": write_markdown(meta, values, custom=self._custom())
@@ -403,15 +583,36 @@ class Editor(_TkBase):
                 elif meta.kind == "Audio": write_audio(meta, values)
                 elif meta.kind == "Video": write_video(meta, values)
                 else: write_pdf(meta, values, False, self._custom())
-            set_filesystem_times(meta.path, values["filesystem_created"], values["filesystem_modified"])
-            self.undo_history = [(meta.path, saved_backup)] if saved_backup else []
-            self.open(str(meta.path))
-            self.status.configure(text="已另存为副本并保存。" if is_copy else "保存成功，已重新读取验证。")
+            time_error = None
+            try:
+                set_filesystem_times(meta.path, values["filesystem_created"], values["filesystem_modified"])
+            except Exception as exc:
+                time_error = exc
+            try:
+                verified = load(str(meta.path))
+            except Exception as verify_error:
+                self._record_history(before, meta.path, "save", "unreadable")
+                self.status.configure(text="保存已执行，但重新读取验证失败")
+                messagebox.showwarning("保存后无法验证", f"文件已保存，但无法重新读取属性：\n{verify_error}", parent=self)
+                return
+            self.meta = verified
+            self.path_var.set(str(meta.path))
+            self._render()
+            self._record_history(before, verified, "save", "time_failed" if time_error else "read_back")
+            if time_error:
+                self.status.configure(text="元数据已保存，但文件系统时间写入失败")
+                messagebox.showwarning("部分保存成功", f"嵌入元数据已保存并记录历史，但文件系统时间写入失败：\n{time_error}", parent=self)
+            else:
+                self.status.configure(text="已另存为副本并保存。" if is_copy else "保存成功，已重新读取验证。")
         except Exception as e: messagebox.showerror("保存失败", str(e))
 
     def clear(self):
         if not self.meta: return
-        before = self.meta
+        try:
+            before = load(str(self.meta.path))
+        except Exception as exc:
+            messagebox.showerror("无法读取清除前属性", str(exc), parent=self)
+            return
         preview = [(before.path.name, label, before.values.get(key, ""), "清除")
                    for key, label in editable_fields(before) if before.values.get(key, "")]
         preview += [(before.path.name, f"自定义：{key}", value, "清除") for key, value in before.custom.items()]
@@ -422,7 +623,8 @@ class Editor(_TkBase):
             target = self._target_for_write("清除属性", "已清除属性")
             if target is None: return
             meta, is_copy = target
-            saved_backup = backup(meta.path) if self.backup_var.get() else None
+            if not is_copy:
+                meta = before
             try:
                 clear_embedded_properties(meta)
             except PermissionError:
@@ -430,12 +632,11 @@ class Editor(_TkBase):
                 copy = self._copy_target(meta, "清除属性", "已清除属性", "Windows 拒绝替换原文件；它可能仍被其他程序占用")
                 if copy is None: return
                 meta, is_copy = copy, True
-                saved_backup = backup(meta.path) if self.backup_var.get() else None
                 clear_embedded_properties(meta)
-            self.undo_history = [(meta.path, saved_backup)] if saved_backup else []
             try:
                 verified, remaining = verify_embedded_clear(meta.path)
             except Exception as verify_error:
+                self._record_history(before, meta.path, "clear", "unreadable")
                 self.status.configure(text="清除已执行，但重新读取验证失败")
                 messagebox.showwarning(
                     "清除后无法验证",
@@ -444,6 +645,7 @@ class Editor(_TkBase):
                 )
                 return
             self.meta = verified
+            self._record_history(before, verified, "clear", "passed" if not remaining else "residual")
             self.path_var.set(str(meta.path))
             self._render()
             changes = changed_values(before, verified, {key for key, _ in editable_fields(before)} | {"__custom__", "__all__"})
@@ -542,12 +744,11 @@ class Editor(_TkBase):
             elif mode.get() == "modify":
                 edit_bar.pack(fill="x", pady=(0, 8), after=options)
         mode.trace_add("write", show_mode_options)
-        batch_backup = tk.BooleanVar(value=self.backup_var.get())
         def choose_batch_folder():
             directory = filedialog.askdirectory(parent=dialog, title="选择副本输出文件夹")
             if directory:
                 self.output_dir.set(directory)
-        self._output_settings(frame, batch_backup, choose_batch_folder)
+        self._output_settings(frame, self.history_var, choose_batch_folder)
         table = ttk.Treeview(frame, columns=("file", "status", "detail"), show="headings")
         table.heading("file", text="文件")
         table.heading("status", text="状态")
@@ -618,74 +819,6 @@ class Editor(_TkBase):
             register_batch_drop(dialog)
         add_paths(initial_paths)
 
-        def start():
-            if not paths:
-                return
-            if not messagebox.askyesno("确认批量清除", f"确认清除这 {len(paths)} 个文件的所有内嵌属性吗？\n此操作将无法撤销。", parent=dialog):
-                return
-            start_button.configure(state="disabled")
-            close_button.configure(state="disabled")
-            succeeded = failed = verification_failed = 0
-            for index, path in enumerate(paths, start=1):
-                table.item(rows[path], values=(path, "处理中", ""))
-                progress.configure(text=f"正在处理 {index} / {len(paths)}")
-                dialog.update_idletasks()
-                try:
-                    meta = load(path)
-                    reason = inplace_write_block_reason(meta.path)
-                    is_copy = bool(reason)
-                    if is_copy:
-                        copy_path = suggested_copy_path(meta.path)
-                        shutil.copy2(meta.path, copy_path)
-                        make_writable(copy_path)
-                        meta = load(str(copy_path))
-                    if batch_backup.get() and not is_copy:
-                        backup(meta.path)
-                    try:
-                        clear_embedded_properties(meta)
-                    except PermissionError:
-                        if is_copy:
-                            raise
-                        copy_path = suggested_copy_path(meta.path)
-                        shutil.copy2(meta.path, copy_path)
-                        make_writable(copy_path)
-                        meta = load(str(copy_path))
-                        clear_embedded_properties(meta)
-                        is_copy = True
-                    detail = f"已另存为：{meta.path.name}；" if is_copy else ""
-                    try:
-                        _, remaining = verify_embedded_clear(meta.path)
-                    except Exception as verify_error:
-                        verification_failed += 1
-                        table.item(
-                            rows[path],
-                            values=(path, "无法验证", f"清除已执行，但重新读取失败：{verify_error}"),
-                        )
-                    else:
-                        if remaining:
-                            verification_failed += 1
-                            table.item(
-                                rows[path],
-                                values=(path, "验证未通过", detail + "残留：" + "、".join(remaining[:8])),
-                            )
-                        else:
-                            succeeded += 1
-                            table.item(
-                                rows[path],
-                                values=(path, "成功", detail + "清除后重新读取验证通过"),
-                            )
-                except Exception as exc:
-                    failed += 1
-                    table.item(rows[path], values=(path, "失败", str(exc)))
-                dialog.update_idletasks()
-            progress.configure(text=f"完成：验证通过 {succeeded}，验证未通过 {verification_failed}，处理失败 {failed}")
-            close_button.configure(state="normal")
-            messagebox.showinfo(
-                "批量清除完成",
-                f"验证通过：{succeeded}\n验证未通过：{verification_failed}\n处理失败：{failed}\n详细结果见列表。",
-                parent=dialog,
-            )
-
         def plan(meta):
             if mode.get() == "all":
                 keys = {key for key, _ in editable_fields(meta)}
@@ -746,19 +879,18 @@ class Editor(_TkBase):
             close_button.configure(state="disabled")
             succeeded = failed = verification_failed = 0
             result_rows = []
-            operation_backups = []
-            for index, (path, (before, updates, keys)) in enumerate(snapshots.items(), start=1):
+            for index, (path, (_preview_before, updates, keys)) in enumerate(snapshots.items(), start=1):
                 table.item(rows[path], values=(path, "处理中", ""))
                 progress.configure(text=f"正在处理 {index} / {len(snapshots)}")
                 dialog.update_idletasks()
                 try:
+                    before = load(path)
                     meta = before
                     reason = inplace_write_block_reason(meta.path)
                     is_copy = self.output_mode.get() == "copy" or bool(reason)
                     if is_copy:
                         copy_path = create_output_copy(meta.path, self.output_dir.get(), self.output_template.get())
                         meta = load(str(copy_path))
-                    saved_backup = backup(meta.path) if batch_backup.get() else None
                     def perform(item):
                         if mode.get() == "all":
                             clear_embedded_properties(item)
@@ -771,18 +903,24 @@ class Editor(_TkBase):
                             raise
                         copy_path = create_output_copy(meta.path, self.output_dir.get(), self.output_template.get())
                         meta = load(str(copy_path))
-                        saved_backup = backup(meta.path) if batch_backup.get() else None
                         perform(meta)
                         is_copy = True
-                    if saved_backup:
-                        operation_backups.append((meta.path, saved_backup))
-                    after = load(str(meta.path))
+                    try:
+                        after = load(str(meta.path))
+                    except Exception:
+                        self._record_history(before, meta.path, "batch_clear" if mode.get() != "modify" else "batch_save", "unreadable", dialog)
+                        raise
                     changes = changed_values(before, after, keys)
                     result_rows.extend((meta.path.name, *change) for change in changes)
                     if mode.get() == "all":
-                        _, residual = verify_embedded_clear(meta.path)
+                        try:
+                            _, residual = verify_embedded_clear(meta.path)
+                        except Exception:
+                            self._record_history(before, after, "batch_clear", "unreadable", dialog)
+                            raise
                     else:
                         residual = [dict(editable_fields(before)).get(key, key) for key in updates if after.values.get(key, "") != updates[key]]
+                    self._record_history(before, after, "batch_clear" if mode.get() != "modify" else "batch_save", "passed" if not residual else "residual", dialog)
                     if residual:
                         verification_failed += 1
                         table.item(rows[path], values=(path, "验证未通过", "未达到预期：" + "、".join(residual[:8])))
@@ -795,7 +933,6 @@ class Editor(_TkBase):
                     table.item(rows[path], values=(path, "失败", str(exc)))
                 dialog.update_idletasks()
             progress.configure(text=f"完成：成功 {succeeded}，未通过 {verification_failed}，失败 {failed}，跳过 {skipped}")
-            self.undo_history = operation_backups
             close_button.configure(state="normal")
             self._property_table("批量处理后对照", result_rows, parent=dialog)
 

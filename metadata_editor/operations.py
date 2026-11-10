@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 import shutil
-import tempfile
 from pathlib import Path
 
 from .engine import (
@@ -51,20 +49,6 @@ def create_output_copy(source: Path, directory: str, template: str) -> Path:
     make_writable(target)
     return target
 
-
-def restore_from_backup(target: Path, saved: Path) -> None:
-    """Replace target using a temporary copy; keep the selected backup intact."""
-    if target.suffix.lower() != saved.suffix.lower() or not saved.is_file():
-        raise ValueError("备份文件不存在或类型与目标文件不同。")
-    descriptor, tmp_name = tempfile.mkstemp(suffix=target.suffix, dir=target.parent)
-    os.close(descriptor)
-    temporary = Path(tmp_name)
-    try:
-        shutil.copy2(saved, temporary)
-        make_writable(temporary)
-        os.replace(temporary, target)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 FIELD_SETS = {
     "Office": FIELDS, "Legacy Office": FIELDS, "PDF": PDF_FIELDS,

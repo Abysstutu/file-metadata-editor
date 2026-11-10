@@ -5,7 +5,6 @@ import base64
 import ctypes
 import os
 import re
-import shutil
 import stat
 import struct
 import subprocess
@@ -990,20 +989,3 @@ def verify_embedded_clear(path: str | Path) -> tuple[Metadata, list[str]]:
         if str(value).strip()
     )
     return result, remaining
-
-def backup(path: Path) -> Path:
-    # Never overwrite an earlier backup: network-sync folders and document apps
-    # often keep the old .metadata-backup file open or read-only.
-    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    # Keep the original extension so Windows recognizes the backup as a PDF or
-    # Office document and it can be opened directly.
-    target = path.with_name(f"{path.stem}.{stamp}.metadata-backup{path.suffix}")
-    try:
-        shutil.copy2(path, target)
-        make_writable(target)
-    except PermissionError as exc:
-        raise PermissionError(
-            "无法在当前文件夹创建备份。请确认该文件夹可写、文件未被同步软件或 Office/WPS 占用，"
-            "或者在界面中将“保存前备份”设为“否”。"
-        ) from exc
-    return target

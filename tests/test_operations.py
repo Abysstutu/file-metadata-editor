@@ -6,11 +6,11 @@ from pathlib import Path
 from pypdf import PdfWriter
 
 from metadata_editor.engine import load, verify_embedded_clear, clear_embedded_properties
-from metadata_editor.operations import changed_values, create_output_copy, output_copy_path, restore_from_backup, selected_fields, write_selected
+from metadata_editor.operations import changed_values, create_output_copy, output_copy_path, selected_fields, write_selected
 
 
 class SelectiveOperationsTest(unittest.TestCase):
-    def test_copy_destination_collision_and_restore(self):
+    def test_copy_destination_collision(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             source = root / "input.md"
@@ -22,10 +22,6 @@ class SelectiveOperationsTest(unittest.TestCase):
             self.assertNotEqual(first, second)
             self.assertEqual(first.read_text(encoding="utf-8"), "original")
             self.assertEqual(second.read_text(encoding="utf-8"), "original")
-            first.write_text("edited", encoding="utf-8")
-            restore_from_backup(first, source)
-            self.assertEqual(first.read_text(encoding="utf-8"), "original")
-            self.assertEqual(source.read_text(encoding="utf-8"), "original")
             with self.assertRaises(ValueError):
                 output_copy_path(source, str(output), "{name.__class__}")
 

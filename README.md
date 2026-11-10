@@ -6,18 +6,19 @@
 
 打开 [GitHub Releases](https://github.com/Abysstutu/file-metadata-editor/releases)，选择适合的 Windows x64 包：
 
-- **v3.5（推荐）**：沿用 v3.4 的格式支持，改进桌面界面排布，并换用黑白直线 M 图标。
+- **v4.0（推荐）**：黑白桌面界面；单文件与批量修改历史统一保存在本地记录中，清除记录可在文件哈希匹配时恢复清除前的可编辑属性。
+- **v3.5**：沿用 v3.4 的格式支持，改进桌面界面排布，并换用黑白直线 M 图标。
 - **v3.4**：增强 Word、Excel、PowerPoint、图片、音视频等格式的元数据编辑，并提供各格式测试报告。
 - **v3.3**：支持拖放、批量处理和旧版 Office，并随包提供所需运行组件。
 - **v2.0**：支持旧版 `.doc`、`.xls`、`.ppt`，内置 Java 运行时。
 - **v1.0**：仅支持新版 Office 格式与 PDF。
 
-v3.5 提供两个 Windows x64 下载包：
+v4.0 提供两个 Windows x64 下载包：
 
 - `FileMetadataEditor-vX.Y-Windows-x64.exe`：单文件便携版，下载后可直接运行，但首次启动需要解包，启动速度较慢。
 - `FileMetadataEditor-vX.Y-Windows-x64-FastStart.zip`：快速启动版，解压后运行文件夹中的 EXE；不要单独移动 EXE，需保留同目录运行组件。
 
-v3.5 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe。其他版本包含的组件请以对应 Release 说明为准。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
+v4.0 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe。其他版本包含的组件请以对应 Release 说明为准。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
 
 ## 支持范围
 
@@ -32,7 +33,7 @@ v3.5 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe�
 | 视频 | `.mp4`、`.mov`、`.mkv` | 发布版内置 FFmpeg 与 ffprobe |
 | ZIP | `.zip` | 压缩包注释 |
 
-支持单文件编辑、批量清除、按类别批量清除、批量修改、拖放、保存前备份，以及文件只读或占用时另存为可写副本。清除前可预览将处理的属性，处理后可逐项查看原值和结果；单文件和批量操作都会重新读取文件，区分验证通过、检测到残留和无法验证。批量修改可统一填写标题、作者、关键词，或用文件名作为标题；不同格式不支持的字段会跳过。清除和修改操作会改变文件，请先备份重要文件。
+支持单文件编辑、批量清除、按类别批量清除、批量修改、拖放、修改历史记录，以及文件只读或占用时另存为可写副本。清除前可预览将处理的属性，处理后可逐项查看原值和结果；单文件和批量操作都会重新读取文件，区分验证通过、检测到残留和无法验证。批量修改可统一填写标题、作者、关键词，或用文件名作为标题；不同格式不支持的字段会跳过。清除和修改操作会改变文件，请自行保留重要文件的原件。
 
 Word `.doc/.docx/.docm/.dotx/.dotm` 的 18 个预设字段及命名自定义属性已完成写入、读回和清除测试。详见 [Word 能力表](docs/word-capability/metadata-capability-report.md) 和 [50 份样本回归结果](docs/word-corpus-results.json)。
 
@@ -40,7 +41,7 @@ Excel `.xls/.xlsx/.xlsm/.xltx/.xltm` 也完成相同范围的验证。详见 [Ex
 
 PowerPoint 的 `.ppt/.pptx/.pptm/.potx/.potm/.ppsx/.ppsm` 完成 [逐项能力测试](docs/powerpoint-capability/metadata-capability-report.md) 和 [70 份样本回归](docs/powerpoint-corpus-results.json)。图片常用 EXIF 字段支持中文标题、作者、描述与 GPS 坐标；MP3 描述、视频专辑和类型已可修改。PDF Info 自定义键、Markdown 顶层普通标量自定义键也支持逐项编辑。查看 [35 种格式的完整能力表](docs/full-capability/metadata-capability-report.md) 与 [350 份样本的清除回归结果](docs/full-regression/regression-summary.json)。
 
-输出可选择直接修改原文件，或另存副本；副本可指定输出文件夹和命名规则，`{name}` 表示原文件名。若目标文件名已存在，程序会自动添加序号，避免覆盖。勾选“保存前备份”后，可在本次运行中使用“撤销上次操作”；也可打开目标文件后使用“从备份恢复”选择历史 `.metadata-backup` 文件。恢复前程序还会保存当前状态的备份。关闭备份选项的操作不能通过“撤销上次操作”恢复。
+输出可选择直接修改原文件，或另存副本；副本可指定输出文件夹和命名规则，`{name}` 表示原文件名。若目标文件名已存在，程序会自动添加序号，避免覆盖。开启“记录修改历史”后，每次操作都会在成功写入后向同一个本地 `edit-history.jsonl` 文件追加一条记录，包含操作前和操作后的元数据、结果文件 SHA-256、文件名与路径、验证状态。Windows 默认位置为 `%LOCALAPPDATA%\FileMetadataEditor\edit-history.jsonl`；点击“查看修改历史”可搜索记录、查看前后属性并复制哈希。清除记录可点击“恢复清除前属性”：程序先以清除后的 SHA-256 确认目标文件仍是同一份，再写回清除前的可编辑属性与文件系统时间，并重新读取验证。旧版仅保存操作后数据的历史记录无法恢复；文件若在清除后又被修改，也会因哈希不同而被拒绝。历史记录不包含文件正文，也不能恢复不受本程序编辑能力覆盖的私有或结构属性。程序不再自动创建 `.metadata-backup` 完整文件副本。
 
 ## 限制与故障处理
 
