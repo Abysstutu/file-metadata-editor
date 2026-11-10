@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>文件源数据编辑</title>
+  <rect x="8" y="8" width="240" height="240" rx="59" fill="#000"/>
+  <path d="M44 183 V72 H64 L128 145 L192 72 H212 V183 H190 V102 L128 174 L66 102 V183 Z"
+        fill="#fff"/>
+</svg>

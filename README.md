@@ -6,17 +6,18 @@
 
 打开 [GitHub Releases](https://github.com/Abysstutu/file-metadata-editor/releases)，选择适合的 Windows x64 包：
 
-- **v3.4（推荐）**：增强 Word、Excel、PowerPoint、图片、音视频等格式的元数据编辑，并提供各格式测试报告。
+- **v3.5（推荐）**：沿用 v3.4 的格式支持，改进桌面界面排布，并换用黑白直线 M 图标。
+- **v3.4**：增强 Word、Excel、PowerPoint、图片、音视频等格式的元数据编辑，并提供各格式测试报告。
 - **v3.3**：支持拖放、批量处理和旧版 Office，并随包提供所需运行组件。
 - **v2.0**：支持旧版 `.doc`、`.xls`、`.ppt`，内置 Java 运行时。
 - **v1.0**：仅支持新版 Office 格式与 PDF。
 
-v3.4 提供两个 Windows x64 下载包：
+v3.5 提供两个 Windows x64 下载包：
 
 - `FileMetadataEditor-vX.Y-Windows-x64.exe`：单文件便携版，下载后可直接运行，但首次启动需要解包，启动速度较慢。
 - `FileMetadataEditor-vX.Y-Windows-x64-FastStart.zip`：快速启动版，解压后运行文件夹中的 EXE；不要单独移动 EXE，需保留同目录运行组件。
 
-v3.4 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe。其他版本包含的组件请以对应 Release 说明为准。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
+v3.5 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe。其他版本包含的组件请以对应 Release 说明为准。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
 
 ## 支持范围
 
