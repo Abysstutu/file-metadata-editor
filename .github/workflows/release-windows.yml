@@ -95,7 +95,32 @@ jobs:
           }
           "FAST_ASSET=$fastAsset" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Smoke-test both packaged launch modes
+      - name: Package fast-start installer with desktop shortcut
+        shell: pwsh
+        run: |
+          $compiler = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $compiler) {
+            throw "Inno Setup compiler was not found on the Windows runner."
+          }
+          $tag = "$env:RELEASE_TAG"
+          $version = if ($tag -match '^v(.+)$') { $Matches[1] } else { '0.0.0-dev' }
+          $source = (Resolve-Path 'dist/faststart/文件源数据编辑').Path
+          $output = (Resolve-Path 'dist').Path
+          $assetName = "FileMetadataEditor-$tag-Windows-x64-Setup"
+          & $compiler "/DAppVersion=$version" "/DSourceDir=$source" "/O$output" "/F$assetName" 'installer/file-metadata-editor.iss'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Installer compilation failed."
+          }
+          $setupAsset = "dist/$assetName.exe"
+          if (-not (Test-Path $setupAsset)) {
+            throw "Installer is missing: $setupAsset"
+          }
+          "SETUP_ASSET=$setupAsset" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Smoke-test portable and installed launch modes
         shell: pwsh
         run: |
           $onefileMedia = Start-Process -FilePath "$env:RELEASE_ASSET" -ArgumentList '--self-test-media' -Wait -PassThru
@@ -127,6 +152,27 @@ jobs:
           Write-Host "Portable-folder process survived startup check in $($folderWatch.Elapsed.TotalSeconds) seconds."
           Stop-Process -Id $folder.Id -Force
 
+          $setup = Start-Process -FilePath "$env:SETUP_ASSET" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          if ($setup.ExitCode -ne 0) {
+            throw "Installer failed: exit $($setup.ExitCode)"
+          }
+          $installedExe = "$env:LOCALAPPDATA\Programs\FileMetadataEditor\文件源数据编辑.exe"
+          $desktopLink = Join-Path ([Environment]::GetFolderPath('Desktop')) '文件源数据编辑.lnk'
+          if (-not (Test-Path $installedExe) -or -not (Test-Path $desktopLink)) {
+            throw "Installed application or desktop shortcut is missing."
+          }
+          $installedMedia = Start-Process -FilePath $installedExe -ArgumentList '--self-test-media' -Wait -PassThru
+          if ($installedMedia.ExitCode -ne 0) {
+            throw "Installed application could not run its bundled media tools."
+          }
+          $uninstall = Start-Process -FilePath "$env:LOCALAPPDATA\Programs\FileMetadataEditor\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) {
+            throw "Installer uninstall smoke test failed."
+          }
+          if (Test-Path $desktopLink) {
+            throw "Desktop shortcut remained after uninstall."
+          }
+
       - name: Create or update the GitHub Release
         if: github.event_name == 'push' || github.event_name == 'release'
         shell: pwsh
@@ -136,9 +182,9 @@ jobs:
           $tag = "$env:RELEASE_TAG"
           $null = gh release view "$tag" --repo "$env:GITHUB_REPOSITORY" 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload "$tag" "$env:RELEASE_ASSET" "$env:FAST_ASSET" --repo "$env:GITHUB_REPOSITORY" --clobber
+            gh release upload "$tag" "$env:RELEASE_ASSET" "$env:FAST_ASSET" "$env:SETUP_ASSET" --repo "$env:GITHUB_REPOSITORY" --clobber
           } else {
-            gh release create "$tag" "$env:RELEASE_ASSET" "$env:FAST_ASSET" --repo "$env:GITHUB_REPOSITORY" --title "$tag" --generate-notes
+            gh release create "$tag" "$env:RELEASE_ASSET" "$env:FAST_ASSET" "$env:SETUP_ASSET" --repo "$env:GITHUB_REPOSITORY" --title "$tag" --generate-notes
           }
           if ($LASTEXITCODE -ne 0) {
             throw "Could not create or update release $tag."
@@ -152,5 +198,6 @@ jobs:
           path: |
             ${{ env.RELEASE_ASSET }}
             ${{ env.FAST_ASSET }}
+            ${{ env.SETUP_ASSET }}
           if-no-files-found: error
           retention-days: 14

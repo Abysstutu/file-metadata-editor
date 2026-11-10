@@ -20,6 +20,8 @@ v4.0 提供两个 Windows x64 下载包：
 
 v4.0 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe。其他版本包含的组件请以对应 Release 说明为准。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
 
+后续版本还将提供 `FileMetadataEditor-vX.Y-Windows-x64-Setup.exe` 安装包：它使用快速启动版的文件夹结构，安装时创建桌面和开始菜单快捷方式，并可从 Windows“已安装的应用”中卸载。默认安装在当前用户目录，无需管理员权限；卸载时会保留用户的修改历史记录。
+
 ## 支持范围
 
 | 类型 | 扩展名 | 说明 |
