@@ -1,12 +1,12 @@
 {
-  "tag_name": "v4.1",
-  "html_url": "https://github.com/Abysstutu/file-metadata-editor/releases/tag/v4.1",
+  "tag_name": "v4.2",
+  "html_url": "https://github.com/Abysstutu/file-metadata-editor/releases/tag/v4.2",
   "assets": [
     {
-      "name": "FileMetadataEditor-v4.1-Windows-x64-Setup.exe",
-      "browser_download_url": "https://github.com/Abysstutu/file-metadata-editor/releases/download/v4.1/FileMetadataEditor-v4.1-Windows-x64-Setup.exe",
-      "size": 151299107,
-      "digest": "sha256:d328e8f05cdb9726076b6459506098545d92606747b7c2bbf30561c2a29eb973"
+      "name": "FileMetadataEditor-v4.2-Windows-x64-Setup.exe",
+      "browser_download_url": "https://github.com/Abysstutu/file-metadata-editor/releases/download/v4.2/FileMetadataEditor-v4.2-Windows-x64-Setup.exe",
+      "size": 151344133,
+      "digest": "sha256:481cec8b0b2ece096abf287521c394946e07b0bc8060b4784ab441ef26ee82f1"
     }
   ]
 }
