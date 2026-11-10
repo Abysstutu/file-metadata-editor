@@ -6,21 +6,22 @@
 
 打开 [GitHub Releases](https://github.com/Abysstutu/file-metadata-editor/releases)，选择适合的 Windows x64 包：
 
-- **v4.0（推荐）**：黑白桌面界面；单文件与批量修改历史统一保存在本地记录中，清除记录可在文件哈希匹配时恢复清除前的可编辑属性。
+- **v4.1（推荐）**：安装版，沿用 v4.0 功能，安装后可从桌面快捷方式快速启动。
+- **v4.0**：黑白桌面界面；单文件与批量修改历史统一保存在本地记录中，清除记录可在文件哈希匹配时恢复清除前的可编辑属性。
 - **v3.5**：沿用 v3.4 的格式支持，改进桌面界面排布，并换用黑白直线 M 图标。
 - **v3.4**：增强 Word、Excel、PowerPoint、图片、音视频等格式的元数据编辑，并提供各格式测试报告。
 - **v3.3**：支持拖放、批量处理和旧版 Office，并随包提供所需运行组件。
 - **v2.0**：支持旧版 `.doc`、`.xls`、`.ppt`，内置 Java 运行时。
 - **v1.0**：仅支持新版 Office 格式与 PDF。
 
-v4.0 提供两个 Windows x64 下载包：
+从 v4.1 开始，GitHub Releases 只发布 `FileMetadataEditor-vX.Y-Windows-x64-Setup.exe` 安装程序。它采用快速启动版的文件夹结构，安装时创建桌面和开始菜单快捷方式，并可从 Windows“已安装的应用”中卸载。默认安装在当前用户目录，无需管理员权限；卸载时会保留用户的修改历史记录。
+
+历史版本 v4.0 提供两个 Windows x64 下载包：
 
 - `FileMetadataEditor-vX.Y-Windows-x64.exe`：单文件便携版，下载后可直接运行，但首次启动需要解包，启动速度较慢。
 - `FileMetadataEditor-vX.Y-Windows-x64-FastStart.zip`：快速启动版，解压后运行文件夹中的 EXE；不要单独移动 EXE，需保留同目录运行组件。
 
 v4.0 的两种下载包均无需单独安装 Python、Java、FFmpeg 或 ffprobe。其他版本包含的组件请以对应 Release 说明为准。Windows SmartScreen 或杀毒软件可能对未签名的个人项目程序发出提示；请仅从本仓库 Releases 下载，并在运行前核对发布版本与文件名。
-
-后续版本还将提供 `FileMetadataEditor-vX.Y-Windows-x64-Setup.exe` 安装包：它使用快速启动版的文件夹结构，安装时创建桌面和开始菜单快捷方式，并可从 Windows“已安装的应用”中卸载。默认安装在当前用户目录，无需管理员权限；卸载时会保留用户的修改历史记录。
 
 ## 支持范围
 

@@ -66,20 +66,7 @@ jobs:
         shell: pwsh
         run: ./scripts/prepare-ffmpeg.ps1
 
-      - name: Package compact single-file executable
-        shell: pwsh
-        run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name "文件源数据编辑" --manifest high-dpi.manifest --icon assets/app-icon.ico --add-data "assets/app-icon.png;assets" --add-data "legacy_helper/legacy-metadata-helper.jar;legacy_helper" --add-data "_build_runtime/runtime;runtime" --add-data "_build_runtime/media-tools;media-tools" --collect-all tkinterdnd2 --collect-all pypdf --collect-all PIL --collect-all mutagen app.py
-          $tag = "${{ github.event.release.tag_name || inputs.build_ref || github.ref_name }}"
-          $asset = "dist/FileMetadataEditor-$tag-Windows-x64.exe"
-          Move-Item "dist/文件源数据编辑.exe" $asset
-          if (-not (Test-Path $asset)) {
-            throw "Packaged executable is missing: $asset"
-          }
-          "RELEASE_ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Package faster-start portable folder
+      - name: Package fast-start application for the installer
         shell: pwsh
         run: |
           pyinstaller --noconfirm --onedir --windowed --workpath build/faststart --distpath dist/faststart --name "文件源数据编辑" --manifest high-dpi.manifest --icon assets/app-icon.ico --add-data "assets/app-icon.png;assets" --add-data "legacy_helper/legacy-metadata-helper.jar;legacy_helper" --add-data "_build_runtime/runtime;runtime" --add-data "_build_runtime/media-tools;media-tools" --collect-all tkinterdnd2 --collect-all pypdf --collect-all PIL --collect-all mutagen app.py
@@ -88,12 +75,7 @@ jobs:
             throw "Portable folder executable is missing."
           }
           $tag = "${{ github.event.release.tag_name || inputs.build_ref || github.ref_name }}"
-          $fastAsset = "dist/FileMetadataEditor-$tag-Windows-x64-FastStart.zip"
-          Compress-Archive -Path "dist/faststart/文件源数据编辑/*" -DestinationPath $fastAsset -CompressionLevel Fastest
-          if (-not (Test-Path $fastAsset)) {
-            throw "Fast-start portable archive is missing."
-          }
-          "FAST_ASSET=$fastAsset" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Package fast-start installer with desktop shortcut
         shell: pwsh
@@ -120,27 +102,13 @@ jobs:
           }
           "SETUP_ASSET=$setupAsset" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Smoke-test portable and installed launch modes
+      - name: Smoke-test fast-start and installed launch modes
         shell: pwsh
         run: |
-          $onefileMedia = Start-Process -FilePath "$env:RELEASE_ASSET" -ArgumentList '--self-test-media' -Wait -PassThru
-          if ($onefileMedia.ExitCode -ne 0) {
-            throw "Bundled FFmpeg/ffprobe failed in the single-file application."
-          }
           $folderMedia = Start-Process -FilePath "dist/faststart/文件源数据编辑/文件源数据编辑.exe" -ArgumentList '--self-test-media' -Wait -PassThru
           if ($folderMedia.ExitCode -ne 0) {
             throw "Bundled FFmpeg/ffprobe failed in the portable folder."
           }
-
-          $onefileWatch = [System.Diagnostics.Stopwatch]::StartNew()
-          $onefile = Start-Process -FilePath "$env:RELEASE_ASSET" -PassThru
-          Start-Sleep -Seconds 15
-          $onefile.Refresh()
-          if ($onefile.HasExited) {
-            throw "The single-file application exited during startup."
-          }
-          Write-Host "Single-file process survived startup check in $($onefileWatch.Elapsed.TotalSeconds) seconds."
-          Stop-Process -Id $onefile.Id -Force
 
           $folderWatch = [System.Diagnostics.Stopwatch]::StartNew()
           $folder = Start-Process -FilePath "dist/faststart/文件源数据编辑/文件源数据编辑.exe" -PassThru
@@ -182,9 +150,9 @@ jobs:
           $tag = "$env:RELEASE_TAG"
           $null = gh release view "$tag" --repo "$env:GITHUB_REPOSITORY" 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload "$tag" "$env:RELEASE_ASSET" "$env:FAST_ASSET" "$env:SETUP_ASSET" --repo "$env:GITHUB_REPOSITORY" --clobber
+            gh release upload "$tag" "$env:SETUP_ASSET" --repo "$env:GITHUB_REPOSITORY" --clobber
           } else {
-            gh release create "$tag" "$env:RELEASE_ASSET" "$env:FAST_ASSET" "$env:SETUP_ASSET" --repo "$env:GITHUB_REPOSITORY" --title "$tag" --generate-notes
+            gh release create "$tag" "$env:SETUP_ASSET" --repo "$env:GITHUB_REPOSITORY" --title "$tag" --generate-notes
           }
           if ($LASTEXITCODE -ne 0) {
             throw "Could not create or update release $tag."
@@ -196,8 +164,6 @@ jobs:
         with:
           name: FileMetadataEditor-${{ inputs.build_ref }}-Windows-x64
           path: |
-            ${{ env.RELEASE_ASSET }}
-            ${{ env.FAST_ASSET }}
             ${{ env.SETUP_ASSET }}
           if-no-files-found: error
           retention-days: 14
