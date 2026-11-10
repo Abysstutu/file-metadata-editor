@@ -12,6 +12,7 @@ legacy_helper/target/
 **/.maven-cache/
 _build_vendor/
 _build_runtime/
+metadata_editor/_release_version.py
 
 # Runtime backup files
 *.metadata-backup

@@ -17,6 +17,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: windows-release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -66,10 +70,18 @@ jobs:
         shell: pwsh
         run: ./scripts/prepare-ffmpeg.ps1
 
+      - name: Embed version from release tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name || inputs.build_ref || github.ref_name }}"
+          if ($tag -match '^v(\d+\.\d+(?:\.\d+)?)$') {
+            "APP_VERSION = '$($Matches[1])'" | Set-Content 'metadata_editor/_release_version.py' -Encoding utf8
+          }
+
       - name: Package fast-start application for the installer
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --onedir --windowed --workpath build/faststart --distpath dist/faststart --name "文件源数据编辑" --manifest high-dpi.manifest --icon assets/app-icon.ico --add-data "assets/app-icon.png;assets" --add-data "legacy_helper/legacy-metadata-helper.jar;legacy_helper" --add-data "_build_runtime/runtime;runtime" --add-data "_build_runtime/media-tools;media-tools" --collect-all tkinterdnd2 --collect-all pypdf --collect-all PIL --collect-all mutagen app.py
+          pyinstaller --noconfirm --onedir --windowed --workpath build/faststart --distpath dist/faststart --name "文件源数据编辑" --manifest high-dpi.manifest --icon assets/app-icon.ico --add-data "assets/app-icon.png;assets" --add-data "legacy_helper/legacy-metadata-helper.jar;legacy_helper" --add-data "_build_runtime/runtime;runtime" --add-data "_build_runtime/media-tools;media-tools" --collect-all tkinterdnd2 --collect-all pypdf --collect-all PIL --collect-all mutagen --collect-all truststore app.py
           $folderExe = "dist/faststart/文件源数据编辑/文件源数据编辑.exe"
           if (-not (Test-Path $folderExe)) {
             throw "Portable folder executable is missing."
@@ -157,6 +169,45 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Could not create or update release $tag."
           }
+
+      - name: Update the public update manifest
+        if: github.event_name == 'push' || github.event_name == 'release'
+        shell: pwsh
+        run: |
+          $tag = "$env:RELEASE_TAG"
+          $asset = Get-Item "$env:SETUP_ASSET"
+          $digest = (Get-FileHash $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = [ordered]@{
+            tag_name = $tag
+            html_url = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$tag"
+            assets = @([ordered]@{
+              name = $asset.Name
+              browser_download_url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$($asset.Name)"
+              size = $asset.Length
+              digest = "sha256:$digest"
+            })
+          }
+          git fetch origin main
+          if ($LASTEXITCODE -ne 0) { throw "Could not fetch main for the update manifest." }
+          git switch -C publish-update-manifest origin/main
+          if ($LASTEXITCODE -ne 0) { throw "Could not switch to main for the update manifest." }
+          if (Test-Path 'updates/latest.json') {
+            $previous = Get-Content 'updates/latest.json' -Raw | ConvertFrom-Json
+            if ([version]($previous.tag_name -replace '^v', '') -gt [version]($tag -replace '^v', '')) {
+              Write-Host "A newer release is already listed in the update manifest."
+              return
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content 'updates/latest.json' -Encoding utf8
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add updates/latest.json
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { return }
+          git commit -m "Point update checker to $tag"
+          if ($LASTEXITCODE -ne 0) { throw "Could not commit the update manifest." }
+          git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish the update manifest." }
 
       - name: Save manual build outputs as workflow artifacts
         if: github.event_name == 'workflow_dispatch'

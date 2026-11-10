@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import datetime as dt
+import queue
 import shutil
+import subprocess
 import sys
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -11,6 +14,9 @@ from .operations import create_output_copy, output_copy_path
 from .engine import AUDIO_SUFFIXES, FIELDS, IMAGE_FIELDS, LEGACY_SUFFIXES, MARKDOWN_FIELDS, MARKDOWN_SUFFIXES, MEDIA_FIELDS, OFFICE_SUFFIXES, PDF_FIELDS, VIDEO_SUFFIXES, ZIP_FIELDS, ZIP_SUFFIXES, IMAGE_SUFFIXES, Metadata, clear_embedded_properties, inplace_write_block_reason, load, make_writable, set_filesystem_times, verify_embedded_clear, write_audio, write_image, write_legacy, write_markdown, write_office, write_pdf, write_video, write_zip
 from .history import (FileChangedError, append_history, delete_history_records,
                       history_path, read_history, restore_recorded_metadata)
+from .updates import (DownloadCancelled, Release, download_installer, is_newer,
+                      latest_release, read_state, should_auto_check, write_state)
+from .version import APP_VERSION
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -35,8 +41,13 @@ class Editor(_TkBase):
         self.output_dir = tk.StringVar()
         self.output_template = tk.StringVar(value="{name}.已处理")
         self.path_var = tk.StringVar()
+        self._update_queue: queue.Queue = queue.Queue()
+        self._update_busy = False
+        self._download_cancel = threading.Event()
         self._style()
         self._layout()
+        self.protocol("WM_DELETE_WINDOW", self._close_app)
+        self.after(2000, lambda: self.check_updates(manual=False))
 
     def _apply_icon(self, window):
         root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
@@ -186,12 +197,138 @@ class Editor(_TkBase):
         self.status = ttk.Label(status_row, text="请选择一个文件开始", style="Muted.TLabel"); self.status.pack(side="left")
         action_row = ttk.Frame(footer); action_row.pack(fill="x")
         ttk.Button(action_row, text="查看修改历史", command=self.show_history).pack(side="left")
+        self.update_button = ttk.Button(action_row, text="检查更新", command=self.check_updates)
+        self.update_button.pack(side="left", padx=(8, 0))
         ttk.Button(action_row, text="清除嵌入属性", style="Danger.TButton", command=self.clear).pack(side="right")
         ttk.Button(action_row, text="保存修改", style="Accent.TButton", command=self.save).pack(side="right", padx=(0, 8))
         # Let the wheel work naturally even when the pointer is above an entry,
         # label, or nested form widget rather than only above the scrollbar.
         self.bind_all("<MouseWheel>", self._mousewheel, add="+")
         self._register_drop_targets(self)
+
+    def _close_app(self):
+        self._download_cancel.set()
+        self.destroy()
+
+    def check_updates(self, manual: bool = True):
+        if self._update_busy or (not manual and not should_auto_check()):
+            return
+        self._update_busy = True
+        self.update_button.configure(state="disabled")
+
+        def worker():
+            try:
+                self._update_queue.put(("checked", manual, latest_release()))
+            except Exception as exc:
+                self._update_queue.put(("check_error", manual, str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.after(100, self._poll_updates)
+
+    def _poll_updates(self):
+        while True:
+            try:
+                kind, *data = self._update_queue.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "checked":
+                manual, release = data
+                self._update_busy = False
+                self.update_button.configure(state="normal")
+                state = read_state()
+                state["last_checked_utc"] = dt.datetime.now(dt.timezone.utc).isoformat()
+                try:
+                    write_state(state)
+                except OSError:
+                    pass
+                if not is_newer(release):
+                    if manual:
+                        messagebox.showinfo("检查更新", f"当前版本 {APP_VERSION} 已是最新版本。", parent=self)
+                    continue
+                if not manual and state.get("dismissed_tag") == release.tag:
+                    continue
+                if messagebox.askyesno(
+                    "发现新版本",
+                    f"当前版本：{APP_VERSION}\n最新版本：{release.tag}\n\n"
+                    "下载并运行新版安装程序吗？下载完成后将校验 SHA-256。",
+                    parent=self,
+                ):
+                    self._start_update_download(release)
+                else:
+                    state["dismissed_tag"] = release.tag
+                    try:
+                        write_state(state)
+                    except OSError:
+                        pass
+            elif kind == "check_error":
+                manual, error = data
+                self._update_busy = False
+                self.update_button.configure(state="normal")
+                if manual:
+                    messagebox.showwarning("检查更新失败", f"无法连接 GitHub 或读取发布信息：\n{error}", parent=self)
+            elif kind == "progress":
+                received, total = data
+                if self._progress_window.winfo_exists():
+                    self._progress_bar.configure(value=received / total * 100)
+                    self._progress_label.configure(text=f"已下载 {received / 1048576:.0f} / {total / 1048576:.0f} MB")
+            elif kind == "downloaded":
+                self._finish_update_download()
+                installer = data[0]
+                try:
+                    subprocess.Popen([str(installer)], cwd=str(installer.parent), close_fds=True)
+                except OSError as exc:
+                    messagebox.showerror("无法启动安装程序", str(exc), parent=self)
+                else:
+                    self._close_app()
+                    return
+            elif kind in {"download_error", "download_cancelled"}:
+                self._finish_update_download()
+                if kind == "download_error":
+                    messagebox.showerror("更新失败", data[0], parent=self)
+        if self._update_busy:
+            self.after(100, self._poll_updates)
+
+    def _start_update_download(self, release: Release):
+        self._update_busy = True
+        self._download_cancel.clear()
+        self.update_button.configure(state="disabled")
+        dialog = tk.Toplevel(self)
+        dialog.title(f"下载 {release.tag}")
+        dialog.transient(self)
+        dialog.resizable(False, False)
+        self._apply_icon(dialog)
+        self._progress_window = dialog
+        panel = ttk.Frame(dialog, padding=20)
+        panel.pack(fill="both", expand=True)
+        ttk.Label(panel, text="正在下载并校验新版安装程序…").pack(anchor="w")
+        self._progress_bar = ttk.Progressbar(panel, maximum=100, length=380)
+        self._progress_bar.pack(fill="x", pady=(14, 8))
+        self._progress_label = ttk.Label(panel, text="准备下载", style="Muted.TLabel")
+        self._progress_label.pack(anchor="w")
+        cancel_button = ttk.Button(panel, text="取消", command=self._download_cancel.set)
+        cancel_button.pack(anchor="e", pady=(12, 0))
+        dialog.protocol("WM_DELETE_WINDOW", self._download_cancel.set)
+
+        def worker():
+            try:
+                installer = download_installer(
+                    release,
+                    progress=lambda received, total: self._update_queue.put(("progress", received, total)),
+                    cancelled=self._download_cancel.is_set,
+                )
+                self._update_queue.put(("downloaded", installer))
+            except DownloadCancelled:
+                self._update_queue.put(("download_cancelled",))
+            except Exception as exc:
+                self._update_queue.put(("download_error", str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_update_download(self):
+        self._update_busy = False
+        self.update_button.configure(state="normal")
+        if self._progress_window.winfo_exists():
+            self._progress_window.destroy()
 
     def _register_drop_targets(self, widget):
         if not DND_FILES:
