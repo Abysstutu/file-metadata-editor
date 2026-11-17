@@ -26,6 +26,7 @@ except ImportError:  # Drag and drop is optional for source runs without install
 
 SUPPORTED_SUFFIXES = OFFICE_SUFFIXES | LEGACY_SUFFIXES | MARKDOWN_SUFFIXES | IMAGE_SUFFIXES | AUDIO_SUFFIXES | VIDEO_SUFFIXES | ZIP_SUFFIXES | {".pdf"}
 _TkBase = TkinterDnD.Tk if TkinterDnD else tk.Tk
+UPDATE_CHECK_TIMEOUT_MS = 15_000
 
 
 class Editor(_TkBase):
@@ -43,6 +44,9 @@ class Editor(_TkBase):
         self.path_var = tk.StringVar()
         self._update_queue: queue.Queue = queue.Queue()
         self._update_busy = False
+        self._update_checking = False
+        self._update_request_id = 0
+        self._check_timer = None
         self._download_cancel = threading.Event()
         self._style()
         self._layout()
@@ -214,16 +218,37 @@ class Editor(_TkBase):
         if self._update_busy or (not manual and not should_auto_check()):
             return
         self._update_busy = True
+        self._update_checking = True
+        self._update_request_id += 1
+        request_id = self._update_request_id
         self.update_button.configure(state="disabled")
 
         def worker():
             try:
-                self._update_queue.put(("checked", manual, latest_release()))
+                self._update_queue.put(("checked", request_id, manual, latest_release()))
             except Exception as exc:
-                self._update_queue.put(("check_error", manual, str(exc)))
+                self._update_queue.put(("check_error", request_id, manual, str(exc)))
 
         threading.Thread(target=worker, daemon=True).start()
+        self._check_timer = self.after(
+            UPDATE_CHECK_TIMEOUT_MS,
+            lambda: self._check_updates_timed_out(request_id, manual),
+        )
         self.after(100, self._poll_updates)
+
+    def _check_updates_timed_out(self, request_id: int, manual: bool):
+        if request_id != self._update_request_id or not self._update_checking:
+            return
+        self._check_timer = None
+        self._update_request_id += 1  # A late worker result must not affect a later check.
+        self._update_checking = False
+        self._update_busy = False
+        self.update_button.configure(state="normal")
+        message = "15 秒内未收到完整的更新信息，请检查网络后重试。"
+        if manual:
+            messagebox.showwarning("检查更新失败", message, parent=self)
+        else:
+            self.status.configure(text="自动检查更新失败，可稍后手动重试")
 
     def _poll_updates(self):
         while True:
@@ -231,6 +256,14 @@ class Editor(_TkBase):
                 kind, *data = self._update_queue.get_nowait()
             except queue.Empty:
                 break
+            if kind in {"checked", "check_error"}:
+                request_id, *data = data
+                if request_id != self._update_request_id or not self._update_checking:
+                    continue
+                self._update_checking = False
+                if self._check_timer is not None:
+                    self.after_cancel(self._check_timer)
+                    self._check_timer = None
             if kind == "checked":
                 manual, release = data
                 self._update_busy = False
@@ -266,6 +299,8 @@ class Editor(_TkBase):
                 self.update_button.configure(state="normal")
                 if manual:
                     messagebox.showwarning("检查更新失败", f"无法连接 GitHub 或读取发布信息：\n{error}", parent=self)
+                else:
+                    self.status.configure(text="自动检查更新失败，可稍后手动重试")
             elif kind == "progress":
                 received, total = data
                 if self._progress_window.winfo_exists():

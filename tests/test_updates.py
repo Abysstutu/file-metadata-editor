@@ -2,11 +2,14 @@ import datetime as dt
 import hashlib
 import io
 import json
+import queue
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
+from metadata_editor.ui import Editor, UPDATE_CHECK_TIMEOUT_MS
 from metadata_editor.updates import (DownloadCancelled, Release, UpdateError,
                                      download_installer, is_newer, latest_release,
                                      read_state, should_auto_check, version_tuple,
@@ -50,11 +53,41 @@ class UpdateTests(unittest.TestCase):
 
     def test_repository_manifest_is_a_valid_release(self):
         manifest = Path(__file__).resolve().parent.parent / "updates" / "latest.json"
+        expected = json.loads(manifest.read_text(encoding="utf-8"))
         with patch("metadata_editor.updates._request", return_value=Response(manifest.read_bytes(),
                                                                             "https://raw.githubusercontent.com/Abysstutu/file-metadata-editor/main/updates/latest.json")):
             release = latest_release()
-        self.assertEqual(release.tag, "v4.1")
-        self.assertEqual(release.asset_size, 151299107)
+        self.assertEqual(release.tag, expected["tag_name"])
+        self.assertEqual(release.asset_size, expected["assets"][0]["size"])
+
+    def test_check_timeout_reports_failure_and_ignores_late_reply(self):
+        self.assertEqual(UPDATE_CHECK_TIMEOUT_MS, 15_000)
+        fake = SimpleNamespace(
+            _update_request_id=7, _update_checking=True, _update_busy=True,
+            _check_timer="pending", update_button=Mock(), status=Mock(),
+            _update_queue=queue.Queue(), after_cancel=Mock(), after=Mock(),
+            _poll_updates=Mock(),
+        )
+        with patch("metadata_editor.ui.messagebox.showwarning") as warning:
+            Editor._check_updates_timed_out(fake, 7, True)
+            self.assertFalse(fake._update_busy)
+            self.assertFalse(fake._update_checking)
+            self.assertEqual(fake._update_request_id, 8)
+            self.assertIsNone(fake._check_timer)
+            warning.assert_called_once()
+            self.assertIn("15 秒", warning.call_args.args[1])
+            fake._update_queue.put(("checked", 7, True, object()))
+            Editor._poll_updates(fake)
+            warning.assert_called_once()
+            self.assertFalse(fake._update_busy)
+            fake._update_checking = True
+            fake._update_busy = True
+            fake._check_timer = "retry"
+            fake._update_queue.put(("checked", 7, True, object()))
+            Editor._poll_updates(fake)
+            self.assertTrue(fake._update_busy)
+            self.assertEqual(fake._check_timer, "retry")
+            fake.after.assert_called_once_with(100, fake._poll_updates)
 
     def test_download_verifies_bytes_and_can_reuse_verified_file(self):
         name = "FileMetadataEditor-v4.3-Windows-x64-Setup.exe"

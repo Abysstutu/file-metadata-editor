@@ -3,4 +3,4 @@
 try:
     from ._release_version import APP_VERSION
 except ModuleNotFoundError:
-    APP_VERSION = "4.2.0-dev"
+    APP_VERSION = "4.2.1-dev"
